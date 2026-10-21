@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>카공족 홍제 운영실</title>
-<meta name="theme-color" content="#2C5E4C">
+<meta name="theme-color" content="#F3F5F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121815" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -182,6 +183,8 @@ td.r,th.r{text-align:right}
 .progress i{display:block;height:100%;background:var(--accent);border-radius:4px}
 details.cl summary{cursor:pointer;font-weight:600;font-size:14px;padding:4px 0}
 .day .ev.eve.cov{color:var(--accent)}
+/* iPhone: 상태바 아래로 내용이 비치지 않게 머리줄 배경을 위로 늘림 */
+header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-50%);width:100vw;bottom:100%;height:100vh;background:var(--bg);pointer-events:none}
 
 </style>
 </head>
