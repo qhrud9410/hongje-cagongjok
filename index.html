@@ -197,7 +197,7 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
       <div class="who" id="who"></div>
     </div>
     <nav class="tabs" role="tablist" id="tabs">
-      <button role="tab" data-tab="today" aria-selected="true">출근</button>
+      <button role="tab" data-tab="today" aria-selected="true">출근<span class="cnt" id="swapcnt" hidden></span></button>
       <button role="tab" data-tab="cal" aria-selected="false">근무 캘린더</button>
       <button role="tab" data-tab="sup" aria-selected="false">비품<span class="cnt" id="lowcnt" hidden></span></button>
       <button role="tab" data-tab="admin" aria-selected="false" id="admintab" hidden>관리</button>
@@ -262,6 +262,7 @@ async function refresh(){
     if (S.ownerPin && !d.isOwner){ S.ownerPin=""; store.set("ownerPin",""); }
     if (S.isOwner) S.me = ownerMid();
     if (S.me && !S.managers[S.me]) { S.me=null; S.pin=""; store.set("me",""); store.set("pin",""); }
+    pushSync();
     const ae = document.activeElement;
     const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest && ae.closest("#main") && ae.value;
     if (!document.querySelector(".scrim") && !typing) render();
@@ -444,11 +445,12 @@ function renderChrome(){
   const low = Object.values(S.supplies).filter(s=>s.status==="low").length;
   const lc = document.getElementById("lowcnt"); lc.hidden = !low; lc.textContent = low;
   const nb = boardUnread(); const bc = document.getElementById("boardcnt"); if (bc){ bc.hidden = !nb; bc.textContent = nb; }
+  { const n = S.loaded ? swapLists().inc.length : 0; const e = document.getElementById("swapcnt"); if (e){ e.hidden = !n; e.textContent = n; } }
   const el = document.getElementById("who");
   const label = S.isOwner ? `${S.me?esc(mName(S.me))+" · ":""}점주` : (S.me && S.pin) ? esc(mName(S.me))+" 매니저" : "";
   el.innerHTML = label ? `<b>${label}</b><button class="btn small ghost" id="logout">로그아웃</button>` : `<button class="btn small primary" id="login">로그인</button>`;
   el.querySelector("#login")?.addEventListener("click", loginSheet);
-  el.querySelector("#logout")?.addEventListener("click", ()=>{ S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (S.tab==="admin") S.tab="today"; refresh(); });
+  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (S.tab==="admin") S.tab="today"; refresh(); });
 }
 function render(){
   renderChrome();
@@ -465,6 +467,7 @@ function viewToday(){
   let html = "";
   if (!managers.length) return `<div class="card empty"><b>아직 등록된 매니저가 없어요</b>점주 화면의 관리 탭에서 매니저를 등록해 주세요.</div>`;
   if (!S.isOwner && S.pin && isEveningPerson(S.me) && info.mid !== S.me) return viewEvening(now, date);
+  html += swapInbox() + pushCard();
   const sMid = S.isOwner ? (info.mid || info.cover || null) : (S.me && S.pin ? S.me : (info.mid || info.cover || null));
   const mine = loggedIn() && sMid && sMid === S.me;
   const r = recFor(date, sMid);
@@ -523,7 +526,7 @@ function photoSlot(key, alt){
 function viewEvening(now, date){
   const mine = eveningFor(date).some(([id])=>id===S.me);
   const r = eveRec(date, S.me), sub = mine ? eveSub(date, S.me) : null;
-  let html = `<section><h2>오늘 <span class="sub">${dLabel(date)}</span></h2><div class="card today">`;
+  let html = swapInbox() + pushCard() + `<section><h2>오늘 <span class="sub">${dLabel(date)}</span></h2><div class="card today">`;
   html += `<div class="spread"><div><div class="date">${mine?"오늘 저녁 담당이에요":"오늘은 저녁 담당일이 아니에요"}</div><div class="who-big">쓰레기 분리수거</div></div><span class="pill ${eveCovered(r,S.me)||sub?"s-accent":r?"s-good":mine?"s-plan":"s-off"}">${eveCovered(r,S.me)?"대신 처리됨":r?`완료 ${esc(r.hm)}`:sub?"대타":mine?"예정":"없음"}</span></div>`;
   if (!r && sub) html += `<div class="note">오늘 저녁 분리수거는 ${esc(mName(sub))}님이 대타예요.</div>`;
   else if (eveCovered(r,S.me)) html += `<div class="note">오늘은 ${esc(r.byName||mName(r.by))}님이 대신 분리수거를 했어요 (<span class="num">${esc(r.hm)}</span>).</div>`;
@@ -653,12 +656,12 @@ function viewAdmin(){
   html += `<div class="faint" style="font-size:12.5px">예상 지급액 = 출근~퇴근 기록 시간 × 시급 + 리워드. 퇴근을 누르지 않은 날은 근무시간에 들어가지 않아요.</div></section>`;
 
   const pend = Object.entries(S.changes).filter(([,c])=>c.state==="requested").sort((a,b)=>a[1].date.localeCompare(b[1].date));
-  html += `<section><h2>근무 변경 요청 <span class="sub">${pend.length}건</span></h2>`;
+  html += `<section><h2>수락 대기 중인 대타 <span class="sub">${pend.length}건</span></h2><div class="faint" style="font-size:12.5px;margin:-4px 2px 8px">당사자가 수락하면 자동으로 확정돼요. 급할 땐 여기서 바로 확정하거나 거절할 수 있어요.</div>`;
   if (!pend.length) html += `<div class="card empty">대기 중인 요청이 없어요.</div>`;
   else {
     html += `<div class="list">`;
     pend.forEach(([id,c])=>{
-      html += `<div class="item"><div style="min-width:0"><div class="nm">${dLabel(c.date)} · ${c.type==="eswap"?"저녁 분리수거 대타":"오전 대타"}</div><div class="faint" style="font-size:13px">${esc(mName(c.fromMid))} → ${esc(mName(c.toMid))}${c.note?` · ${esc(c.note)}`:""}</div></div><div class="acts"><button class="btn small ghost danger" data-act="chg-reject" data-id="${id}">거절</button><button class="btn small primary" data-act="chg-approve" data-id="${id}">승인</button></div></div>`;
+      html += `<div class="item"><div style="min-width:0"><div class="nm">${dLabel(c.date)} · ${c.type==="eswap"?"저녁 분리수거 대타":"오전 대타"} <span class="pill s-warn">수락 대기</span></div><div class="faint" style="font-size:13px">${esc(mName(c.fromMid))} → ${esc(mName(c.toMid))}${c.note?` · ${esc(c.note)}`:""}</div></div><div class="acts"><button class="btn small ghost danger" data-act="chg-reject" data-id="${id}">거절</button><button class="btn small primary" data-act="chg-approve" data-id="${id}">승인</button></div></div>`;
     });
     html += `</div>`;
   }
@@ -702,6 +705,7 @@ function viewAdmin(){
 function bindMain(main){
   main.querySelectorAll('input[id^="cmt-"]').forEach(inp=>inp.addEventListener("keydown", e=>{ if (e.key==="Enter" && !e.isComposing){ e.preventDefault(); main.querySelector(`[data-act="cmt-add"][data-id="${inp.id.slice(4)}"]`)?.click(); } }));
   bindEveOwn(main);
+  bindSwap(main);
   main.querySelectorAll("[data-act]").forEach(el=>el.addEventListener("click",e=>{
     const a = el.dataset.act, id = el.dataset.id;
     const H = {
@@ -741,7 +745,7 @@ function bindMain(main){
       "sup-arrived":()=>{ if (!needLogin()) act(()=>call("supplyStatus",{id,status:"arrived"}),"도착으로 바꿨어요"); },
       "sup-new":()=>supEditSheet(null),
       "sup-edit":()=>supEditSheet(id),
-      "chg-approve":()=>act(()=>call("changeDecide",{id,approve:true}),"승인했어요"),
+      "chg-approve":()=>act(()=>call("changeDecide",{id,approve:true}),"확정했어요"),
       "chg-reject":()=>act(()=>call("changeDecide",{id,approve:false}),"거절했어요"),
       "mgr-new":()=>mgrSheet(null),
       "mgr-edit":()=>mgrSheet(id),
@@ -863,9 +867,7 @@ function daySheet(date){
   if (evs.length || sts.length) h += `<div class="list">${evs.map(([id,e])=>`<div class="item"><div class="nm">${esc(e.title)}${e.time?` <span class="faint num">${esc(e.time)}</span>`:""}</div><div class="acts">${S.isOwner?`<button class="btn small ghost danger" data-evdel="${id}">삭제</button>`:""}</div></div>`).join("")}${sts.map(([,m])=>`<div class="item"><div class="nm">${esc(m.name)} 매니저 첫 출근</div></div>`).join("")}</div>`;
   { const cs = checkCount(date); if (cs.total && (cs.done || date <= today)) h += `<details class="cl"><summary>청소 체크리스트 ${cs.done}/${cs.total} 완료</summary>${checklistHtml(date, false, false)}</details>`; }
   if (r?.hasPhoto) h += photoSlot(attKey(date,mid), `${mName(mid)} 출근 사진, ${r.inHM} 촬영`);
-  if (info.pending.length) h += info.pending.map(([,c])=>`<div class="note">대기 중인 요청 · ${esc(mName(c.fromMid))} → ${esc(mName(c.toMid))} 대타${c.note?` · ${esc(c.note)}`:""}</div>`).join("");
-  const ePend = evePending(date);
-  if (ePend.length) h += ePend.map(([,c])=>`<div class="note">대기 중인 요청 · 저녁 분리수거 ${esc(mName(c.fromMid))} → ${esc(mName(c.toMid))}${c.note?` · ${esc(c.note)}`:""}</div>`).join("");
+  { const sr = swapRowsFor(date); if (sr) h += `<div class="list">${sr}</div>`; }
   const myEve = !S.isOwner && S.pin && eveningFor(date).some(([id])=>id===S.me);
   const future = date >= today;
   if (!S.isOwner && S.pin && future && info.mid===S.me && !info.pending.length) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="req-swap">대타 요청</button></div>`;
@@ -895,6 +897,7 @@ function daySheet(date){
     }));
     sh.querySelector("#ovr")?.addEventListener("change", ev=>act(()=>call("override",{date, mid, value:ev.target.value}), "상태를 바꿨어요"));
     bindEveOwn(sh, closeSheet);
+    bindSwap(sh, closeSheet);
   });
 }
 function changeSheet(date, fromMid, direct, type){
@@ -904,12 +907,12 @@ function changeSheet(date, fromMid, direct, type){
   openSheet(`<h3>${dLabel(date)} ${eve?"저녁 분리수거 ":""}대타 ${direct?"지정":"요청"}</h3>
     <div class="field"><label for="to">${eve?"대신 분리수거할 사람":"대신 근무할 사람"}</label><select id="to">${others.map(([id,m])=>`<option value="${id}">${esc(m.name)}${m.role==="owner"?" (점주)":""}</option>`).join("")}</select></div>
     <div class="field"><label for="why">사유 (선택)</label><input id="why" placeholder="예: 병원 예약"></div>
-    ${direct?"":`<div class="faint" style="font-size:12.5px">점주에게 카톡·메일로 알림이 가고, 승인하면 캘린더에 반영돼요. 미리 조율한 대타는 결근으로 치지 않아요.</div>`}
-    <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="go" ${others.length?"":"disabled"}>${direct?"저장":"요청 보내기"}</button></div>`, sh=>{
+    ${direct?"":`<div class="faint" style="font-size:12.5px">고른 사람에게 알림이 가요. 그 사람이 <b>수락</b>하면 바로 캘린더에 반영되고, 결과도 알림으로 알려 드려요. 미리 조율한 대타는 결근으로 치지 않아요.</div>`}
+    <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="go" ${others.length?"":"disabled"}>${direct?"저장":"부탁 보내기"}</button></div>`, sh=>{
     const go = sh.querySelector("#go");
     go.addEventListener("click", async()=>{
       busyBtn(go);
-      const ok = await act(()=>call("changeRequest",{date, type, fromMid:fromMid||"", toMid:sh.querySelector("#to").value, note:sh.querySelector("#why").value.trim()}), direct?"캘린더에 반영했어요":"요청을 보냈어요");
+      const ok = await act(()=>call("changeRequest",{date, type, fromMid:fromMid||"", toMid:sh.querySelector("#to").value, note:sh.querySelector("#why").value.trim()}), direct?"캘린더에 반영했어요":"부탁을 보냈어요. 상대가 수락하면 알려 드릴게요");
       if (ok) closeSheet(); else freeBtn(go);
     });
   });
@@ -1156,6 +1159,95 @@ function injectBoardUI(){
   document.head.appendChild(st);
 }
 
+/* ---------- 대타 요청함 ---------- */
+function myId(){ return S.isOwner ? ownerMid() : S.me; }
+const swapKind = c => c.type==="eswap" ? "저녁 분리수거" : "오전 근무";
+function swapLists(){
+  const me = myId(), today = seoul().date;
+  if (!me || !(S.pin || S.isOwner)) return {inc:[], out:[]};
+  const list = Object.entries(S.changes).filter(([,c])=>c.state==="requested" && c.date>=today).sort((a,b)=>a[1].date.localeCompare(b[1].date));
+  return { inc: list.filter(([,c])=>c.toMid===me), out: list.filter(([,c])=>c.toMid!==me && (c.requestedBy===me || c.fromMid===me)) };
+}
+function swapInbox(){
+  const {inc, out} = swapLists();
+  if (!inc.length && !out.length) return "";
+  let h = `<section><h2>대타 요청 ${inc.length?`<span class="pill s-warn">답해 주세요 ${inc.length}</span>`:""}</h2><div class="list">`;
+  inc.forEach(([id,c])=>{ h += `<div class="item"><div style="min-width:0"><div class="nm">${dLabel(c.date)} · ${swapKind(c)}</div><div class="faint" style="font-size:13px">${esc(mName(c.fromMid))}님이 대신해 달라고 부탁했어요${c.note?` · ${esc(c.note)}`:""}</div></div><div class="acts"><button class="btn small ghost danger" data-swap="no" data-id="${id}">거절</button><button class="btn small primary" data-swap="yes" data-id="${id}">수락</button></div></div>`; });
+  out.forEach(([id,c])=>{ h += `<div class="item"><div style="min-width:0"><div class="nm">${dLabel(c.date)} · ${swapKind(c)}</div><div class="faint" style="font-size:13px">${esc(mName(c.toMid))}님에게 부탁했어요 · 답을 기다리는 중</div></div><div class="acts"><button class="btn small ghost" data-swap="cancel" data-id="${id}">요청 취소</button></div></div>`; });
+  return h + `</div></section>`;
+}
+function swapRowsFor(date){
+  const me = myId(), today = seoul().date, logged = !!(S.pin || S.isOwner);
+  return Object.entries(S.changes).filter(([,c])=>c.date===date && (c.state==="requested" || c.state==="approved")).map(([id,c])=>{
+    let btns = "";
+    if (logged && c.state==="requested"){
+      if (c.toMid===me) btns = `<button class="btn small ghost danger" data-swap="no" data-id="${id}">거절</button><button class="btn small primary" data-swap="yes" data-id="${id}">수락</button>`;
+      else if (c.fromMid===me || c.requestedBy===me || S.isOwner) btns = `<button class="btn small ghost" data-swap="cancel" data-id="${id}">요청 취소</button>`;
+    } else if (logged && c.state==="approved" && date>=today && (c.fromMid===me || c.toMid===me || S.isOwner)) btns = `<button class="btn small ghost danger" data-swap="cancel" data-armed-need="1" data-id="${id}">대타 취소</button>`;
+    const st = c.state==="requested" ? `<span class="pill s-warn">수락 대기</span>` : `<span class="pill s-good">확정</span>`;
+    return `<div class="item"><div style="min-width:0"><div class="nm">${swapKind(c)} 대타 ${st}</div><div class="faint" style="font-size:13px">${esc(mName(c.fromMid))} → ${esc(mName(c.toMid))}${c.note?` · ${esc(c.note)}`:""}</div></div><div class="acts">${btns}</div></div>`;
+  }).join("");
+}
+function bindSwap(root, done){
+  root.querySelectorAll("[data-swap]").forEach(b=>b.addEventListener("click", async()=>{
+    const mode = b.dataset.swap, id = b.dataset.id;
+    if (b.dataset.armedNeed && !b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "한 번 더 누르면 취소"; return; }
+    busyBtn(b);
+    const ok = mode==="cancel" ? await act(()=>call("changeCancel",{id}), "취소했어요. 상대에게 알림이 갔어요")
+      : await act(()=>call("changeRespond",{id, accept: mode==="yes"}), mode==="yes" ? "수락했어요. 캘린더에 반영됐어요" : "거절했어요");
+    if (ok && done) done(); else if (!ok) freeBtn(b);
+  }));
+}
+
+/* ---------- 휴대폰 알림 (웹 푸시) ---------- */
+const PUSH_KEY = "BHijnUAeUENIzctMJ8Etigl1y6rkV6Z3pr-xy83MNiDX78C_EtYFDB8r1SGImuGN6ijRH85CulElWFCEhMh1R6o";
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = () => (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+function b64uBytes(s){ const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(b, c=>c.charCodeAt(0)); }
+function pushCard(){
+  const me = myId();
+  if (!me || !(S.pin || S.isOwner) || S.pushOn) return "";
+  if (store.get("pushLater." + me) === seoul().date) return "";
+  const later = `<button class="btn small ghost" data-push="later">나중에</button>`;
+  if (!pushSupported()){
+    if (isIOS && !isStandalone()) return `<section><div class="card"><div class="nm" style="font-weight:600">🔔 대타 요청을 휴대폰 알림으로 받아 보세요</div><div class="faint" style="font-size:13px;margin-top:4px">아이폰은 사파리 아래 <b>공유</b> 버튼 → <b>홈 화면에 추가</b>를 누른 뒤, 홈 화면의 <b>홍</b> 아이콘으로 열면 ‘알림 켜기’ 버튼이 나와요.</div><div class="acts" style="justify-content:flex-end;margin-top:8px">${later}</div></div></section>`;
+    return "";
+  }
+  if (Notification.permission === "denied") return `<section><div class="card"><div class="nm" style="font-weight:600">🔕 알림이 막혀 있어요</div><div class="faint" style="font-size:13px;margin-top:4px">휴대폰 설정에서 이 앱(또는 브라우저)의 알림을 허용하면 대타 요청을 놓치지 않아요.</div><div class="acts" style="justify-content:flex-end;margin-top:8px">${later}</div></div></section>`;
+  return `<section><div class="card"><div class="nm" style="font-weight:600">🔔 대타 요청 알림 받기</div><div class="faint" style="font-size:13px;margin-top:4px">누가 대타를 부탁하거나 내 부탁에 답하면 휴대폰으로 바로 알려 드려요.</div><div class="acts" style="justify-content:flex-end;margin-top:8px">${later}<button class="btn small primary" data-push="on">알림 켜기</button></div></div></section>`;
+}
+async function pushEnable(btn){
+  try{
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted"){ toast("알림을 ‘허용’해야 받을 수 있어요."); render(); return; }
+    busyBtn(btn);
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64uBytes(PUSH_KEY) });
+    await call("pushSubscribe", { sub: sub.toJSON(), welcome: true });
+    S.pushSub = sub; S.pushOn = true; S._pushSynced = myId();
+    toast("알림을 켰어요. 확인 알림을 보냈어요"); render();
+  }catch(e){ freeBtn(btn); toast(errMsg(e)); }
+}
+async function pushSync(){
+  try{
+    const me = myId();
+    if (!me || !(S.pin || S.isOwner) || !pushSupported() || Notification.permission !== "granted") return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    const was = S.pushOn;
+    S.pushSub = sub; S.pushOn = !!sub;
+    if (sub && S._pushSynced !== me){ S._pushSynced = me; await call("pushSubscribe", { sub: sub.toJSON() }); }
+    if (was !== S.pushOn && S.tab === "today" && !document.querySelector(".scrim")) render();
+  }catch(e){ console.warn("push sync", e); }
+}
+document.addEventListener("click", e=>{
+  const b = e.target.closest("[data-push]"); if (!b) return;
+  if (b.dataset.push === "on") pushEnable(b);
+  else { store.set("pushLater." + myId(), seoul().date); render(); }
+});
+
 /* ---------- boot ---------- */
 document.getElementById("tabs").addEventListener("click",e=>{
   const b = e.target.closest("button[data-tab]"); if (!b) return;
@@ -1166,6 +1258,8 @@ injectBoardUI();
 const now0 = seoul(); S.calMonth = now0.ym; S.sumMonth = now0.ym;
 S.me = store.get("me") || null; S.pin = store.get("pin"); S.ownerPin = store.get("ownerPin");
 const t0 = store.get("tab"); if (t0) S.tab = t0;
+{ const qt = new URLSearchParams(location.search).get("tab"); if (qt) S.tab = qt; }
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(e=>console.warn("sw", e));
 setInterval(()=>{ if (!document.querySelector(".scrim") && document.visibilityState==="visible") refresh(); }, 60000);
 document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") refresh(); });
 render();
