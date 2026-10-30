@@ -839,7 +839,7 @@ document.getElementById("cam").addEventListener("change", async e=>{
         toast(r.inHM ? `${r.inHM} 출근이 기록됐어요` : "출근이 기록됐어요"); await refresh();
       }catch(err){
         freeBtn(btn); btn.textContent = "다시 보내기";
-        errBox.innerHTML = `<div class="note" style="border-left:3px solid var(--bad);margin-top:10px"><b>⚠️ 아직 출근이 기록되지 않았어요</b><br>${esc(errMsg(err))}<br><span class="faint" style="font-size:12.5px">와이파이가 불안하면 끄고 LTE로 바꾼 뒤 ‘다시 보내기’를 눌러 주세요. 계속 안 되면 날짜를 눌러 ‘출근 기록 정정 요청’을 보내 주세요.</span></div>`;
+        errBox.innerHTML = `<div class="note" style="border-left:3px solid var(--bad);margin-top:10px"><b>⚠️ 아직 출근이 기록되지 않았어요</b><br>${esc(errMsg(err))}<br><span class="faint" style="font-size:12.5px">와이파이가 불안하면 끄고 LTE로 바꾼 뒤 ‘다시 보내기’를 눌러 주세요. 계속 안 되면 나중에 캘린더에서 날짜를 눌러 ‘내 출근 기록 수정’으로 직접 고칠 수 있어요.</span></div>`;
       }
     });
   });
@@ -894,8 +894,7 @@ function daySheet(date){
   if (r?.hasPhoto) h += photoSlot(attKey(date,mid), `${mName(mid)} 출근 사진, ${r.inHM} 촬영`);
   { const sr = swapRowsFor(date); if (sr) h += `<div class="list">${sr}</div>`; }
   { const fr = fixRowsFor(date); if (fr) h += `<div class="list">${fr}</div>`; }
-  if (!S.isOwner && S.pin && date <= today && daysAgo(date) <= 14 && (info.mid===S.me || recFor(date, S.me)) && !fixPending(date, S.me)) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="fix-req">출근 기록 정정 요청</button></div>`;
-  if (S.isOwner && date <= today) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="att-edit">출근 기록 수정</button></div>`;
+  if (date <= today && (S.isOwner || (S.pin && daysAgo(date) <= 14 && (info.mid===S.me || recFor(date, S.me))))) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="att-edit">${S.isOwner?"출근 기록 수정":"내 출근 기록 수정"}</button></div>`;
   const myEve = !S.isOwner && S.pin && eveningFor(date).some(([id])=>id===S.me);
   const future = date >= today;
   if (!S.isOwner && S.pin && future && info.mid===S.me && !info.pending.length) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="req-swap">대타 요청</button></div>`;
@@ -909,7 +908,7 @@ function daySheet(date){
   openSheet(h, sh=>{
     sh.querySelector("#req-swap")?.addEventListener("click",()=>changeSheet(date,mid,false));
     sh.querySelector("#own-swap")?.addEventListener("click",()=>changeSheet(date,mid||info.baseId,true));
-    sh.querySelector("#att-edit")?.addEventListener("click",()=>attEditSheet(date, mid||info.baseId));
+    sh.querySelector("#att-edit")?.addEventListener("click",()=>attEditSheet(date, S.isOwner ? (mid||info.baseId) : S.me));
     sh.querySelector("#fix-req")?.addEventListener("click",()=>fixReqSheet(date));
     bindFix(sh, closeSheet);
     sh.querySelector("#req-eswap")?.addEventListener("click",()=>changeSheet(date,S.me,false,"eswap"));
@@ -1302,20 +1301,22 @@ function timeFields(inHM, outHM){
   return `<div class="row" style="gap:10px"><div class="field" style="flex:1;min-width:120px"><label for="fin">출근 시각</label><input id="fin" type="time" value="${esc(inHM||"")}"></div><div class="field" style="flex:1;min-width:120px"><label for="fout">퇴근 시각 <span class="faint">(선택)</span></label><input id="fout" type="time" value="${esc(outHM||"")}"></div></div>`;
 }
 function attEditSheet(date, mid0){
-  const people = activeManagers();
+  const people = S.isOwner ? activeManagers() : activeManagers().filter(([id])=>id===S.me);
   const cur = mid0 || (people[0]||[])[0];
   const rec = m => recFor(date, m) || {};
   openSheet(`<h3>${dLabel(date)} 출근 기록 수정</h3>
     <div class="field"><label for="fm">매니저</label><select id="fm">${people.map(([id,m])=>`<option value="${id}" ${id===cur?"selected":""}>${esc(m.name)}${m.role==="owner"?" (점주)":""}</option>`).join("")}</select></div>
     <div id="ftimes">${timeFields(rec(cur).inHM, rec(cur).outHM)}</div>
-    <div class="field"><label for="fnote">사유 <span class="faint">(기록에 남아요)</span></label><input id="fnote" placeholder="예: 와이파이 문제로 출근 등록 실패" value="${esc(rec(cur).fixNote||"")}"></div>
-    <div class="faint" style="font-size:12.5px">출근 시각을 비우면 그날 출근 기록이 지워져요. 지각·결근 판정은 바뀐 시각으로 다시 계산돼요.</div>
+    <div class="field"><label for="fnote">사유 <span class="faint">(${S.isOwner?"기록에 남아요":"꼭 적어 주세요 · 기록에 남아요"})</span></label><input id="fnote" placeholder="예: 와이파이 문제로 출근 등록 실패" value="${esc(S.isOwner ? (rec(cur).fixNote||"") : "")}"></div>
+    <div class="faint" style="font-size:12.5px">${S.isOwner ? "출근 시각을 비우면 그날 출근 기록이 지워져요." : "실제로 출근·퇴근한 시각을 적어 주세요. 고친 내용과 사유는 점주에게 바로 알림으로 가요."} 지각·결근 판정은 바뀐 시각으로 다시 계산돼요.</div>
     <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="go">저장</button></div>`, sh=>{
     sh.querySelector("#fm").addEventListener("change", e=>{ const r = rec(e.target.value); sh.querySelector("#ftimes").innerHTML = timeFields(r.inHM, r.outHM); sh.querySelector("#fnote").value = r.fixNote||""; });
     const go = sh.querySelector("#go");
     go.addEventListener("click", async()=>{
       const inHM = sh.querySelector("#fin").value, outHM = sh.querySelector("#fout").value;
       if (!inHM && outHM){ toast("출근 시각도 넣어 주세요."); return; }
+      if (!S.isOwner && !inHM){ toast("실제 출근 시각을 넣어 주세요."); return; }
+      if (!S.isOwner && !sh.querySelector("#fnote").value.trim()){ toast("왜 고치는지 사유를 적어 주세요."); return; }
       busyBtn(go);
       const ok = await act(()=>call("attEdit",{date, mid:sh.querySelector("#fm").value, inHM, outHM, note:sh.querySelector("#fnote").value.trim()}), "출근 기록을 고쳤어요");
       if (ok) closeSheet(); else freeBtn(go);
