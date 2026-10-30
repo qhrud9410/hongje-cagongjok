@@ -258,7 +258,7 @@ async function refresh(){
     const d = await call("load", {month:S.calMonth});
     const map = {};
     d.managers.forEach(m => { map[m.id] = m; });
-    Object.assign(S, {managers:map, att:d.att, changes:d.changes, supplies:d.supplies, purchases:d.purchases, rewards:d.rewards, events:d.events, checks:d.checks, evening:d.evening||{}, checklist:d.checklist, isOwner:d.isOwner, ownerPinSet:d.ownerPinSet, kakao:d.kakao, kakaoKey:d.kakaoKey, kakaoSecret:d.kakaoSecret, kakaoRedirect:d.kakaoRedirect, kakaoList:d.kakaoList||[], notifyEmails:d.notifyEmails||'', board:d.board||null, loaded:true});
+    Object.assign(S, {managers:map, att:d.att, changes:d.changes, supplies:d.supplies, purchases:d.purchases, rewards:d.rewards, events:d.events, checks:d.checks, evening:d.evening||{}, checklist:d.checklist, isOwner:d.isOwner, ownerPinSet:d.ownerPinSet, kakao:d.kakao, kakaoKey:d.kakaoKey, kakaoSecret:d.kakaoSecret, kakaoRedirect:d.kakaoRedirect, kakaoList:d.kakaoList||[], notifyEmails:d.notifyEmails||'', board:d.board||null, attFixes:d.attFixes||{}, loaded:true});
     if (S.ownerPin && !d.isOwner){ S.ownerPin=""; store.set("ownerPin",""); }
     if (S.isOwner) S.me = ownerMid();
     if (S.me && !S.managers[S.me]) { S.me=null; S.pin=""; store.set("me",""); store.set("pin",""); }
@@ -468,6 +468,7 @@ function viewToday(){
   if (!managers.length) return `<div class="card empty"><b>아직 등록된 매니저가 없어요</b>점주 화면의 관리 탭에서 매니저를 등록해 주세요.</div>`;
   if (!S.isOwner && S.pin && isEveningPerson(S.me) && info.mid !== S.me) return viewEvening(now, date);
   html += swapInbox() + pushCard();
+  if (S.isOwner){ const n = Object.values(S.attFixes||{}).filter(f=>f.state==="requested").length; if (n) html += `<section><div class="card spread"><div><b>🕘 출근 기록 정정 요청 ${n}건</b><div class="faint" style="font-size:13px">관리 탭에서 확인하고 승인해 주세요.</div></div><button class="btn small primary" data-gotab="admin">보러 가기</button></div></section>`; }
   const sMid = S.isOwner ? (info.mid || info.cover || null) : (S.me && S.pin ? S.me : (info.mid || info.cover || null));
   const mine = loggedIn() && sMid && sMid === S.me;
   const r = recFor(date, sMid);
@@ -667,6 +668,12 @@ function viewAdmin(){
   }
   html += `</section>`;
 
+  { const fx = Object.entries(S.attFixes||{}).filter(([,f])=>f.state==="requested").sort((a,b)=>a[1].date.localeCompare(b[1].date));
+    if (fx.length){
+      html += `<section><h2>출근 기록 정정 요청 <span class="sub">${fx.length}건</span></h2><div class="faint" style="font-size:12.5px;margin:-4px 2px 8px">승인하면 적힌 시각으로 기록이 바뀌어요. 시각을 고쳐서 넣고 싶으면 날짜를 눌러 ‘출근 기록 수정’을 써 주세요.</div><div class="list">`;
+      fx.forEach(([id,f])=>{ html += `<div class="item"><div style="min-width:0"><div class="nm">${dLabel(f.date)} · ${esc(mName(f.mid))}</div><div class="faint" style="font-size:13px">출근 <span class="num">${esc(f.inHM)}</span>${f.outHM?` / 퇴근 <span class="num">${esc(f.outHM)}</span>`:""} · ${esc(f.note)}</div></div><div class="acts"><button class="btn small ghost danger" data-fix="no" data-id="${id}">거절</button><button class="btn small primary" data-fix="yes" data-id="${id}">승인</button></div></div>`; });
+      html += `</div></section>`;
+    } }
   html += `<section><div class="spread"><h2>매니저</h2><button class="btn small" data-act="mgr-new">+ 매니저 등록</button></div><div class="list">`;
   Object.entries(S.managers).sort((a,b)=>(a[1].order??0)-(b[1].order??0)).forEach(([id,m])=>{
     if (m.role==="owner"){ html += `<div class="item"><div style="min-width:0"><div class="nm">${esc(m.name)} <span class="pill s-accent">점주</span></div><div class="faint" style="font-size:13px">정해진 요일 없음 · 매니저 결원 시 대신 청소 · 점주 PIN으로 출근</div></div></div>`; return; }
@@ -706,6 +713,7 @@ function bindMain(main){
   main.querySelectorAll('input[id^="cmt-"]').forEach(inp=>inp.addEventListener("keydown", e=>{ if (e.key==="Enter" && !e.isComposing){ e.preventDefault(); main.querySelector(`[data-act="cmt-add"][data-id="${inp.id.slice(4)}"]`)?.click(); } }));
   bindEveOwn(main);
   bindSwap(main);
+  bindFix(main);
   main.querySelectorAll("[data-act]").forEach(el=>el.addEventListener("click",e=>{
     const a = el.dataset.act, id = el.dataset.id;
     const H = {
@@ -806,17 +814,33 @@ document.getElementById("cam").addEventListener("change", async e=>{
   try{ dataUrl = await shrink(file); }catch(err){ toast("사진을 읽지 못했어요. 다시 촬영해 주세요."); return; }
   const t = seoul(new Date(now));
   const late = t.hm > ON_TIME_LIMIT;
-  openSheet(`<h3>이 사진으로 출근할까요?</h3><img class="photo-thumb" src="${dataUrl}" alt="방금 찍은 매장 사진"><div class="spread"><div>지금 시각 <b class="num">${t.hm}</b></div><span class="pill ${late?"s-warn":"s-good"}">${late?"지각":"출근"}</span></div><div class="faint" style="font-size:12.5px">출근 시각은 서버 시간으로 기록돼요.</div><div class="acts"><button class="btn" id="retake">다시 촬영</button><button class="btn primary" id="confirm">출근 기록</button></div>`, sh=>{
+  openSheet(`<h3>이 사진으로 출근할까요?</h3><img class="photo-thumb" src="${dataUrl}" alt="방금 찍은 매장 사진"><div class="spread"><div>지금 시각 <b class="num">${t.hm}</b></div><span class="pill ${late?"s-warn":"s-good"}">${late?"지각":"출근"}</span></div><div class="faint" style="font-size:12.5px">출근 시각은 서버 시간으로 기록돼요.</div><div id="cinerr"></div><div class="acts"><button class="btn" id="retake">다시 촬영</button><button class="btn primary" id="confirm">출근 기록</button></div>`, sh=>{
     sh.querySelector("#retake").addEventListener("click",()=>{document.getElementById("sheetRoot").innerHTML="";startClockIn();});
     const btn = sh.querySelector("#confirm");
     btn.addEventListener("click", async()=>{
       busyBtn(btn, "올리는 중…");
+      const errBox = sh.querySelector("#cinerr"); errBox.innerHTML = "";
       try{
-        const r = await call("clockIn",{photo:dataUrl, shotAt:now, mid:S.me});
+        let r = null, last = null;
+        for (let i = 0; i < 3 && !r; i++){
+          try { r = await call("clockIn",{photo:dataUrl, shotAt:now, mid:S.me}); }
+          catch(e2){
+            last = e2; const m = errMsg(e2);
+            if (i > 0 && /이미 있어요/.test(m)) { r = { inHM: "" }; break; }      // 앞선 시도가 사실은 저장됐던 경우
+            if (!/인터넷 연결|처리하지 못했어요|서버 오류/.test(m)) throw e2;    // 연결 문제가 아니면 바로 알림
+            if (i === 2) break;
+            btn.textContent = `다시 보내는 중… (${i+2}/3)`;
+            await new Promise(ok=>setTimeout(ok, 1500*(i+1)));
+          }
+        }
+        if (!r) throw last;
         S.photos[attKey(seoul().date, S.me)] = dataUrl;
         document.getElementById("sheetRoot").innerHTML="";
-        toast(`${r.inHM} 출근이 기록됐어요`); await refresh();
-      }catch(err){ freeBtn(btn); toast(errMsg(err)); }
+        toast(r.inHM ? `${r.inHM} 출근이 기록됐어요` : "출근이 기록됐어요"); await refresh();
+      }catch(err){
+        freeBtn(btn); btn.textContent = "다시 보내기";
+        errBox.innerHTML = `<div class="note" style="border-left:3px solid var(--bad);margin-top:10px"><b>⚠️ 아직 출근이 기록되지 않았어요</b><br>${esc(errMsg(err))}<br><span class="faint" style="font-size:12.5px">와이파이가 불안하면 끄고 LTE로 바꾼 뒤 ‘다시 보내기’를 눌러 주세요. 계속 안 되면 날짜를 눌러 ‘출근 기록 정정 요청’을 보내 주세요.</span></div>`;
+      }
     });
   });
 });
@@ -860,6 +884,7 @@ function daySheet(date){
   if (r?.inHM) h += `<dt>출근</dt><dd class="num">${esc(r.inHM)}</dd><dt>퇴근</dt><dd class="num">${esc(r.outHM||"–")}</dd>`;
   if (r?.inAt && r?.outAt) h += `<dt>근무</dt><dd>${dur(Math.round((Date.parse(r.outAt)-Date.parse(r.inAt))/60000))}</dd>`;
   if (r?.memo) h += `<dt>메모</dt><dd>${esc(r.memo)}</dd>`;
+  if (r?.fixedAt) h += `<dt>수정</dt><dd><span class="pill s-accent">${esc(r.fixedBy||"점주")} 수정</span>${r.fixNote?` <span class="faint">${esc(r.fixNote)}</span>`:""}</dd>`;
   if (!S.isOwner) eveningFor(date).forEach(([id,m])=>{ const er = eveRec(date,id), sub = eveSub(date,id); h += `<dt>저녁</dt><dd>${esc(m.name)} 분리수거 · ${eveCovered(er,id)?`${esc(er.byName||mName(er.by))} 대신 처리 <span class="num">${esc(er.hm)}</span>`:er?`완료 <span class="num">${esc(er.hm)}</span>`:sub?`${esc(mName(sub))} 대타 ${date < today ? "· 완료 기록 없음" : "예정"}`:(date < today ? "완료 기록 없음" : "예정")}</dd>`; });
   h += `</dl>`;
   if (S.isOwner && eveningFor(date).length) h += `<div class="list">${eveOwnerControls(date)}</div>`;
@@ -868,6 +893,9 @@ function daySheet(date){
   { const cs = checkCount(date); if (cs.total && (cs.done || date <= today)) h += `<details class="cl"><summary>청소 체크리스트 ${cs.done}/${cs.total} 완료</summary>${checklistHtml(date, false, false)}</details>`; }
   if (r?.hasPhoto) h += photoSlot(attKey(date,mid), `${mName(mid)} 출근 사진, ${r.inHM} 촬영`);
   { const sr = swapRowsFor(date); if (sr) h += `<div class="list">${sr}</div>`; }
+  { const fr = fixRowsFor(date); if (fr) h += `<div class="list">${fr}</div>`; }
+  if (!S.isOwner && S.pin && date <= today && daysAgo(date) <= 14 && (info.mid===S.me || recFor(date, S.me)) && !fixPending(date, S.me)) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="fix-req">출근 기록 정정 요청</button></div>`;
+  if (S.isOwner && date <= today) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="att-edit">출근 기록 수정</button></div>`;
   const myEve = !S.isOwner && S.pin && eveningFor(date).some(([id])=>id===S.me);
   const future = date >= today;
   if (!S.isOwner && S.pin && future && info.mid===S.me && !info.pending.length) h += `<div class="acts" style="justify-content:flex-start"><button class="btn" id="req-swap">대타 요청</button></div>`;
@@ -881,6 +909,9 @@ function daySheet(date){
   openSheet(h, sh=>{
     sh.querySelector("#req-swap")?.addEventListener("click",()=>changeSheet(date,mid,false));
     sh.querySelector("#own-swap")?.addEventListener("click",()=>changeSheet(date,mid||info.baseId,true));
+    sh.querySelector("#att-edit")?.addEventListener("click",()=>attEditSheet(date, mid||info.baseId));
+    sh.querySelector("#fix-req")?.addEventListener("click",()=>fixReqSheet(date));
+    bindFix(sh, closeSheet);
     sh.querySelector("#req-eswap")?.addEventListener("click",()=>changeSheet(date,S.me,false,"eswap"));
     sh.querySelectorAll("[data-own-eswap]").forEach(b=>b.addEventListener("click",()=>changeSheet(date,b.dataset.ownEswap,true,"eswap")));
     sh.querySelectorAll("[data-act=photo]").forEach(b=>b.addEventListener("click",()=>loadPhoto(b.dataset.key, b)));
@@ -1247,6 +1278,69 @@ document.addEventListener("click", e=>{
   if (b.dataset.push === "on") pushEnable(b);
   else { store.set("pushLater." + myId(), seoul().date); render(); }
 });
+
+/* ---------- 출근 기록 수정·정정 요청 ---------- */
+const daysAgo = d => Math.round((Date.parse(seoul().date+"T00:00:00Z") - Date.parse(d+"T00:00:00Z")) / 864e5);
+const fixPending = (date, mid) => Object.values(S.attFixes||{}).some(f=>f.date===date && f.mid===mid && f.state==="requested");
+function fixRowsFor(date){
+  return Object.entries(S.attFixes||{}).filter(([,f])=>f.date===date && f.state==="requested").map(([id,f])=>{
+    const btns = S.isOwner ? `<button class="btn small ghost danger" data-fix="no" data-id="${id}">거절</button><button class="btn small primary" data-fix="yes" data-id="${id}">승인</button>`
+      : f.mid===S.me ? `<button class="btn small ghost" data-fix="cancel" data-id="${id}">요청 취소</button>` : "";
+    return `<div class="item"><div style="min-width:0"><div class="nm">출근 기록 정정 <span class="pill s-warn">승인 대기</span></div><div class="faint" style="font-size:13px">${esc(mName(f.mid))} · 출근 <span class="num">${esc(f.inHM)}</span>${f.outHM?` / 퇴근 <span class="num">${esc(f.outHM)}</span>`:""} · ${esc(f.note)}</div></div><div class="acts">${btns}</div></div>`;
+  }).join("");
+}
+function bindFix(root, done){
+  root.querySelectorAll("[data-fix]").forEach(b=>b.addEventListener("click", async()=>{
+    const mode = b.dataset.fix, id = b.dataset.id;
+    busyBtn(b);
+    const ok = mode==="cancel" ? await act(()=>call("attFixCancel",{id}), "요청을 취소했어요")
+      : await act(()=>call("attFixDecide",{id, approve: mode==="yes"}), mode==="yes" ? "승인했어요. 기록이 바뀌었어요" : "거절했어요");
+    if (ok && done) done(); else if (!ok) freeBtn(b);
+  }));
+}
+function timeFields(inHM, outHM){
+  return `<div class="row" style="gap:10px"><div class="field" style="flex:1;min-width:120px"><label for="fin">출근 시각</label><input id="fin" type="time" value="${esc(inHM||"")}"></div><div class="field" style="flex:1;min-width:120px"><label for="fout">퇴근 시각 <span class="faint">(선택)</span></label><input id="fout" type="time" value="${esc(outHM||"")}"></div></div>`;
+}
+function attEditSheet(date, mid0){
+  const people = activeManagers();
+  const cur = mid0 || (people[0]||[])[0];
+  const rec = m => recFor(date, m) || {};
+  openSheet(`<h3>${dLabel(date)} 출근 기록 수정</h3>
+    <div class="field"><label for="fm">매니저</label><select id="fm">${people.map(([id,m])=>`<option value="${id}" ${id===cur?"selected":""}>${esc(m.name)}${m.role==="owner"?" (점주)":""}</option>`).join("")}</select></div>
+    <div id="ftimes">${timeFields(rec(cur).inHM, rec(cur).outHM)}</div>
+    <div class="field"><label for="fnote">사유 <span class="faint">(기록에 남아요)</span></label><input id="fnote" placeholder="예: 와이파이 문제로 출근 등록 실패" value="${esc(rec(cur).fixNote||"")}"></div>
+    <div class="faint" style="font-size:12.5px">출근 시각을 비우면 그날 출근 기록이 지워져요. 지각·결근 판정은 바뀐 시각으로 다시 계산돼요.</div>
+    <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="go">저장</button></div>`, sh=>{
+    sh.querySelector("#fm").addEventListener("change", e=>{ const r = rec(e.target.value); sh.querySelector("#ftimes").innerHTML = timeFields(r.inHM, r.outHM); sh.querySelector("#fnote").value = r.fixNote||""; });
+    const go = sh.querySelector("#go");
+    go.addEventListener("click", async()=>{
+      const inHM = sh.querySelector("#fin").value, outHM = sh.querySelector("#fout").value;
+      if (!inHM && outHM){ toast("출근 시각도 넣어 주세요."); return; }
+      busyBtn(go);
+      const ok = await act(()=>call("attEdit",{date, mid:sh.querySelector("#fm").value, inHM, outHM, note:sh.querySelector("#fnote").value.trim()}), "출근 기록을 고쳤어요");
+      if (ok) closeSheet(); else freeBtn(go);
+    });
+  });
+}
+function fixReqSheet(date){
+  const r = recFor(date, S.me) || {};
+  openSheet(`<h3>${dLabel(date)} 출근 기록 정정 요청</h3>
+    <div class="muted" style="font-size:14px">실제로 출근·퇴근한 시각을 적어 주세요. 점주가 승인하면 기록이 바뀌어요.</div>
+    ${timeFields(r.inHM, r.outHM)}
+    <div class="field"><label for="fnote">무슨 일이 있었나요?</label><input id="fnote" placeholder="예: 사진까지 찍었는데 와이파이 문제로 등록이 안 됐어요"></div>
+    <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="go">요청 보내기</button></div>`, sh=>{
+    const go = sh.querySelector("#go");
+    go.addEventListener("click", async()=>{
+      const inHM = sh.querySelector("#fin").value, outHM = sh.querySelector("#fout").value, note = sh.querySelector("#fnote").value.trim();
+      if (!inHM){ toast("실제 출근 시각을 넣어 주세요."); return; }
+      if (!note){ toast("무슨 일이 있었는지 짧게 적어 주세요."); return; }
+      busyBtn(go);
+      const ok = await act(()=>call("attFixRequest",{date, inHM, outHM, note}), "정정 요청을 보냈어요. 점주가 승인하면 알려 드릴게요");
+      if (ok) closeSheet(); else freeBtn(go);
+    });
+  });
+}
+document.addEventListener("click", e=>{ const b = e.target.closest("[data-gotab]"); if (!b) return; S.tab = b.dataset.gotab; render(); });
 
 /* ---------- boot ---------- */
 document.getElementById("tabs").addEventListener("click",e=>{
