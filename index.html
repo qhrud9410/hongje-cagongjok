@@ -353,6 +353,7 @@ function statusOf(date, mid, info){
   if (date === now.date) return now.hm > ON_TIME_LIMIT ? ["미출근","s-bad","mk-bad"] : ["출근 전","s-plan","mk-plan"];
   return ["예정","s-plan","mk-plan"];
 }
+const PAY_HOURS_PER_DAY = 1.5;   // 근무일 하루에 인정하는 시간
 function monthStats(ym, mid){
   const n = daysInMonth(ym), today = seoul().date;
   const s = {scheduled:0, worked:0, onTime:0, late:0, absent:0, minutes:0};
@@ -631,14 +632,14 @@ function viewAdmin(){
   let html = `<section><div class="calhead"><button class="btn small ghost" data-act="sum-prev" aria-label="이전 달">←</button><b>${ymLabel(ym)} 근무 요약</b><button class="btn small ghost" data-act="sum-next" aria-label="다음 달">→</button></div>`;
   if (!managers.length) html += `<div class="card empty"><b>매니저가 없어요</b>아래에서 매니저를 등록하면 월 요약이 계산돼요.</div>`;
   else {
-    html += `<div class="tblwrap"><table><thead><tr><th>매니저</th><th class="r">근무일</th><th class="r">출근</th><th class="r">지각</th><th class="r">결근</th><th class="r">근무시간</th><th>리워드</th><th class="r">예상 지급액</th></tr></thead><tbody>`;
+    html += `<div class="tblwrap"><table><thead><tr><th>매니저</th><th class="r">근무일</th><th class="r">출근</th><th class="r">지각</th><th class="r">결근</th><th class="r">인정 시간</th><th>리워드</th><th class="r">예상 지급액</th></tr></thead><tbody>`;
     const stats = {}, wagePay = {}, notes = [];
     managers.forEach(([id,m])=>{ stats[id] = monthStats(ym,id); });
     managers.forEach(([id,m])=>{
       const to = (m.payTo && S.managers[m.payTo]) ? m.payTo : id;
-      const amt = Math.round(stats[id].minutes/60*(S.managers[to].wage||0));
+      const amt = Math.round(stats[id].worked * PAY_HOURS_PER_DAY * (S.managers[to].wage||0));
       wagePay[to] = (wagePay[to]||0) + amt;
-      if (to !== id && stats[id].minutes) notes.push(`${m.name} 오전 근무 ${dur(stats[id].minutes)} → ${S.managers[to].name} 급여에 합산 (${won(amt)})`);
+      if (to !== id && stats[id].worked) notes.push(`${m.name} 오전 근무 ${stats[id].worked}일 → ${S.managers[to].name} 급여에 합산 (${won(amt)})`);
     });
     managers.forEach(([id,m])=>{
       const st = stats[id], eve = m.duty==="evening";
@@ -646,7 +647,7 @@ function viewAdmin(){
       const eligible = !eve && st.late===0 && st.absent===0;
       const payCell = redirected ? `<span class="faint">${esc(S.managers[m.payTo].name)}에게 합산</span>` : won((wagePay[id]||0) + (eligible ? (Number(reward)||0) : 0));
       const rewardCell = eve ? `<span class="pill s-plan">이용권</span>` : eligible?`<span class="pill s-good">대상</span>`:`<span class="pill s-off">제외</span>`;
-      html += `<tr><td><b>${esc(m.name)}</b>${eve?` <span class="faint" style="font-size:12px">저녁</span>`:""}</td><td class="r num">${st.worked}/${st.scheduled}</td><td class="r num">${st.onTime}</td><td class="r num">${st.late}</td><td class="r num">${st.absent}</td><td class="r num">${dur(st.minutes)}</td><td>${rewardCell}</td><td class="r num">${payCell}</td></tr>`;
+      html += `<tr><td><b>${esc(m.name)}</b>${eve?` <span class="faint" style="font-size:12px">저녁</span>`:""}</td><td class="r num">${st.worked}/${st.scheduled}</td><td class="r num">${st.onTime}</td><td class="r num">${st.late}</td><td class="r num">${st.absent}</td><td class="r num">${dur(st.worked * PAY_HOURS_PER_DAY * 60)}</td><td>${rewardCell}</td><td class="r num">${payCell}</td></tr>`;
     });
     S._payNotes = notes;
     html += `</tbody></table></div>`;
@@ -654,7 +655,7 @@ function viewAdmin(){
     managers.filter(([,m])=>m.duty==="evening").forEach(([id,m])=>{ const c = eveCount(ym, id); html += `<div class="muted" style="font-size:13.5px">${esc(m.name)} 저녁 분리수거 <b class="num" style="color:var(--ink)">${c.done}/${c.due}</b>회 완료 (오늘까지)${c.cover?` · 다른 사람이 대신 <b class="num" style="color:var(--ink)">${c.cover}</b>회`:""}</div>`; });
   }
   html += `<div class="spread"><div class="muted" style="font-size:13.5px">이달의 감사 리워드 <b class="num" style="color:var(--ink)">${reward!=null?won(reward):"미입력"}</b> · 지각·결근 0회일 때 지급</div><button class="btn small" data-act="reward-edit">금액 ${reward!=null?"수정":"입력"}</button></div>`;
-  html += `<div class="faint" style="font-size:12.5px">예상 지급액 = 출근~퇴근 기록 시간 × 시급 + 리워드. 퇴근을 누르지 않은 날은 근무시간에 들어가지 않아요.</div></section>`;
+  html += `<div class="faint" style="font-size:12.5px">예상 지급액 = 근무일수 × 1시간 30분 × 시급 + 리워드. 출근·지각으로 기록된 날을 근무일로 세요 (하루 ${won(Math.round(PAY_HOURS_PER_DAY*10700))}, 시급 10,700원 기준). 실제 머문 시간과는 상관없어요.</div></section>`;
 
   const pend = Object.entries(S.changes).filter(([,c])=>c.state==="requested").sort((a,b)=>a[1].date.localeCompare(b[1].date));
   html += `<section><h2>수락 대기 중인 대타 <span class="sub">${pend.length}건</span></h2><div class="faint" style="font-size:12.5px;margin:-4px 2px 8px">당사자가 수락하면 자동으로 확정돼요. 급할 땐 여기서 바로 확정하거나 거절할 수 있어요.</div>`;
