@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#121815" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="finance.css?v=20261101">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="홍제 운영실">
@@ -200,6 +201,7 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
       <button role="tab" data-tab="today" aria-selected="true">출근<span class="cnt" id="swapcnt" hidden></span></button>
       <button role="tab" data-tab="cal" aria-selected="false">근무 캘린더</button>
       <button role="tab" data-tab="sup" aria-selected="false">비품<span class="cnt" id="lowcnt" hidden></span></button>
+      <button role="tab" data-tab="finance" aria-selected="false" id="financetab" hidden>매출·비용</button>
       <button role="tab" data-tab="admin" aria-selected="false" id="admintab" hidden>관리</button>
     </nav>
   </header>
@@ -209,6 +211,8 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
 <div id="sheetRoot"></div>
 <script>window.addEventListener("error",function(e){var m=document.getElementById("main");if(m&&!m.querySelector(".card,section"))m.innerHTML="<div style='padding:20px;color:#c55'>오류: "+String(e.message).replace(/</g,"&lt;")+"</div>";});</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="finance-core.js?v=20261101"></script>
+<script src="finance.js?v=20261101"></script>
 <script>
 (() => {
 "use strict";
@@ -223,7 +227,7 @@ const PHOTO_MAX_AGE_MS = 3*60*1000;
 const S = {
   tab:"today", loaded:false, busy:false,
   me:null, pin:"", ownerPin:"", isOwner:false,
-  managers:{}, att:{}, changes:{}, supplies:{}, purchases:[], rewards:{}, events:{}, checks:{}, evening:{}, checklist:null,
+  managers:{}, att:{}, changes:{}, supplies:{}, purchases:[], rewards:{}, events:{}, checks:{}, evening:{}, checklist:null, finance:null, finMonth:null,
   calMonth:null, supFilter:"all", sumMonth:null, photos:{}, ownerPinSet:true, kakao:false, board:null, boardFilter:"all", openPost:null, postPhotos:{}
 };
 
@@ -255,10 +259,10 @@ let refreshing = false;
 async function refresh(){
   if (refreshing) return; refreshing = true;
   try{
-    const d = await call("load", {month:S.calMonth});
+    const d = await call("load", {month:S.calMonth, finMonth:S.isOwner?S.finMonth:undefined});
     const map = {};
     d.managers.forEach(m => { map[m.id] = m; });
-    Object.assign(S, {managers:map, att:d.att, changes:d.changes, supplies:d.supplies, purchases:d.purchases, rewards:d.rewards, events:d.events, checks:d.checks, evening:d.evening||{}, checklist:d.checklist, isOwner:d.isOwner, ownerPinSet:d.ownerPinSet, kakao:d.kakao, kakaoKey:d.kakaoKey, kakaoSecret:d.kakaoSecret, kakaoRedirect:d.kakaoRedirect, kakaoList:d.kakaoList||[], notifyEmails:d.notifyEmails||'', board:d.board||null, attFixes:d.attFixes||{}, loaded:true});
+    Object.assign(S, {managers:map, att:d.att, changes:d.changes, supplies:d.supplies, purchases:d.purchases, finance:d.finance||null, rewards:d.rewards, events:d.events, checks:d.checks, evening:d.evening||{}, checklist:d.checklist, isOwner:d.isOwner, ownerPinSet:d.ownerPinSet, kakao:d.kakao, kakaoKey:d.kakaoKey, kakaoSecret:d.kakaoSecret, kakaoRedirect:d.kakaoRedirect, kakaoList:d.kakaoList||[], notifyEmails:d.notifyEmails||'', board:d.board||null, attFixes:d.attFixes||{}, loaded:true});
     if (S.ownerPin && !d.isOwner){ S.ownerPin=""; store.set("ownerPin",""); }
     if (S.isOwner) S.me = ownerMid();
     if (S.me && !S.managers[S.me]) { S.me=null; S.pin=""; store.set("me",""); store.set("pin",""); }
@@ -443,6 +447,7 @@ function needLogin(){ if (loggedIn()) return false; loginSheet(); return true; }
 function renderChrome(){
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected", String(b.dataset.tab===S.tab)));
   document.getElementById("admintab").hidden = !S.isOwner;
+  document.getElementById("financetab").hidden = !S.isOwner;
   const low = Object.values(S.supplies).filter(s=>s.status==="low").length;
   const lc = document.getElementById("lowcnt"); lc.hidden = !low; lc.textContent = low;
   const nb = boardUnread(); const bc = document.getElementById("boardcnt"); if (bc){ bc.hidden = !nb; bc.textContent = nb; }
@@ -451,15 +456,39 @@ function renderChrome(){
   const label = S.isOwner ? `${S.me?esc(mName(S.me))+" · ":""}점주` : (S.me && S.pin) ? esc(mName(S.me))+" 매니저" : "";
   el.innerHTML = label ? `<b>${label}</b><button class="btn small ghost" id="logout">로그아웃</button>` : `<button class="btn small primary" id="login">로그인</button>`;
   el.querySelector("#login")?.addEventListener("click", loginSheet);
-  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (S.tab==="admin") S.tab="today"; refresh(); });
+  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; S.finance=null; ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (["admin","finance"].includes(S.tab)) S.tab="today"; render(); refresh(); });
 }
 function render(){
   renderChrome();
   const main = document.getElementById("main");
   if (!S.loaded){ main.innerHTML = `<div class="empty"><b>불러오는 중</b>매장 기록을 가져오고 있어요.</div>`; return; }
-  const v = {today:viewToday, cal:viewCal, sup:viewSup, board:viewBoard, admin:viewAdmin}[S.tab] || viewToday;
+  const v = {today:viewToday, cal:viewCal, sup:viewSup, board:viewBoard, admin:viewAdmin, finance:viewFinance}[S.tab] || viewToday;
   main.innerHTML = v();
   bindMain(main);
+  if(S.tab==="finance") window.HongjeFinance?.bind(main);
+}
+
+function viewFinance(){
+  // 재무 화면 파일을 못 불러와도 다른 탭은 그대로 쓸 수 있게 한다
+  if (!window.HongjeFinance || !window.FinanceCore) return `<div class="card empty"><b>매출·비용 화면을 불러오지 못했어요</b>새로고침해 주세요. 다른 탭은 그대로 쓸 수 있어요.</div>`;
+  if (!S.finMonth) S.finMonth = seoul().ym;
+  return window.HongjeFinance.view({
+    isOwner:()=>S.isOwner, today:()=>seoul().date, month:()=>S.finMonth, monthLabel:ymLabel,
+    finance:()=>S.finance, purchases:()=>S.purchases||[],
+    render, openSheet, closeSheet, toast, call, refresh,
+    setMonth:ym=>{ S.finMonth=ym; render(); refresh(); },
+    payroll:ym=>{
+      // 관리 탭과 같은 계산(근무일 × 1.5시간 × 시급, payTo 합산, 리워드). 그만둔 매니저도 그 달 근무가 있으면 넣는다.
+      let total=0;
+      Object.entries(S.managers).filter(([,m])=>m.role!=="owner").forEach(([id,m])=>{
+        const st=monthStats(ym,id); if (!st.worked) return;
+        const to=m.payTo&&S.managers[m.payTo]?m.payTo:id;
+        total+=Math.round(st.worked*PAY_HOURS_PER_DAY*(S.managers[to].wage||0));
+        if(to===id&&m.duty!=="evening"&&st.late===0&&st.absent===0) total+=Number(S.rewards[ym]?.amount)||0;
+      });
+      return total;
+    }
+  });
 }
 
 function viewToday(){
