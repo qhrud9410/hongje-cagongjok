@@ -260,14 +260,19 @@ function finMonthRow(x: Row) {
   return { fixed: Array.isArray(x.fixed) ? x.fixed : [], royaltyRate: Number(x.royaltyRate) || 0, feeRate: Number(x.feeRate) || 0, confirmed: !!x.confirmed, excludedPurchases: Array.isArray(x.excludedPurchases) ? x.excludedPurchases.map(String) : [], updatedAt: x.updatedAt || "" };
 }
 async function financeFor(month: string) {
-  const [tx, mr] = await Promise.all([
+  const prevM = shiftMonth(month, -1);
+  const [tx, mr, pr] = await Promise.all([
     q<Row[]>(db.from("finance_tx").select("*").gte("date", month + "-01").lt("date", shiftMonth(month, 1) + "-01").order("date").order("rid")),
     q<Row[]>(db.from("finance_month").select("*")),
+    // 지난달 카테고리별 지출 합계 (화면에서 지난달과 비교용)
+    q<Row[]>(db.from("finance_tx").select("category,kind,amount").gte("date", prevM + "-01").lt("date", month + "-01").in("kind", ["expense", "expenseRefund"])),
   ]);
+  const prevCats: Row = {};
+  pr.forEach((x) => { const c = x.category || "기타"; prevCats[c] = (prevCats[c] || 0) + (x.kind === "expense" ? 1 : -1) * Number(x.amount); });
   const months: Row = {};
   mr.forEach((x) => { months[x.ym] = finMonthRow(x); });
   return {
-    month, months,
+    month, months, prev: pr.length ? { month: prevM, cats: prevCats } : null,
     tx: tx.map((x) => ({ id: x.id, date: x.date, kind: x.kind, source: x.source, name: x.name, amount: Number(x.amount), category: x.category, externalId: x.externalId, note: x.note, updatedAt: x.updatedAt })),
   };
 }

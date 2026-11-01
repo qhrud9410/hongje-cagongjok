@@ -135,6 +135,13 @@ test('월 설정: 초깃값(default) 이어받기, 비품 제외 토글이 다�
   await bad('financeMonthSave',{ownerPin:OWNER,ym:'2026-11',feeRate:-1},/수수료율/);
 });
 
+test('지난달 카테고리별 지출 합계가 함께 온다',async()=>{
+  await ok('financeTxSave',{tx:{date:'2026-10-20',kind:'expense',source:'manual',name:'원두',amount:30000,category:'원두·음료'}});
+  const f=(await load({finMonth:'2026-11'})).finance;
+  assert.equal(f.prev.month,'2026-10');assert.equal(f.prev.cats['원두·음료'],30000);
+  assert.equal((await load({finMonth:'2026-09'})).finance.prev,null);
+});
+
 test('재무 표가 바뀌면 화면 새로고침 신호(표 이름만)가 나간다',()=>{
   const sent=sb.psql(`select string_agg(distinct payload->>'t', ',' order by payload->>'t') from realtime.sent where topic='hongje-sync'`,'postgres');
   assert.match(sent,/finance_month/);assert.match(sent,/finance_tx/);

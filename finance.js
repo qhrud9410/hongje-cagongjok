@@ -6,7 +6,11 @@
  const labels={sale:'매출',refund:'매출 취소·환불',expense:'운영비',expenseRefund:'비용 환급',transfer:'입출금·이체 (손익 제외)',review:'분류 대기 (손익 제외)'};
  const sources={manual:'직접 입력',toss:'토스 POS',hyundai:'현대카드',kb:'국민은행'};
  const txSources={manual:'직접 입력',hyundai:'현대카드',kb:'국민은행'};
- const cats=['소모품','원두·음료','공과금','결제수수료','광고비','로열티','매출','기타'];
+ const cats=['원두·음료','간식','소모품','공과금','인건비','비품·설비','광고비','결제수수료','로열티','기타'];
+ // 카테고리 색 (밝은·어두운 화면 모두에서 구분되는 중간 톤)
+ const catColor={'원두·음료':'#9a6a43','간식':'#e08a2e','소모품':'#3d8bb0','공과금':'#c9a227','인건비':'#8a63b8','비품·설비':'#4f9a6f','광고비':'#cc5c86','결제수수료':'#6b7fa8','로열티':'#b5533f','기타':'#8c938f',
+   '__fixed':'#2f6f5a','__pay':'#a57fd1','__royalty':'#b5533f','__fee':'#6b7fa8','__buy':'#6aa1b3'};
+ const catHint={'원두·음료':'원두, 티백, 음료','간식':'손님 간식','소모품':'휴지·컵·봉투 등','공과금':'전기, 수도, 가스','인건비':'알바·4대보험 등 근무 기록 밖 인건비','비품·설비':'한 번 사서 오래 쓰는 물건','광고비':'홍보·광고','기타':'아직 분류 안 한 지출'};
  let ctx, filter='all', draft=null;
  const won=n=>Number(n).toLocaleString('ko-KR')+'원';
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -50,6 +54,30 @@
    <div class="cal fin-cal">${cells}</div>
    <div class="faint" style="font-size:12.5px">${s.daysEntered}/${s.daysPassed}일 입력 · 날짜를 누르면 그날 매출을 넣거나 고칠 수 있어요. 색이 진할수록 매출이 많은 날이에요.${s.missingDays.length?' 쉬는 날은 0원으로 넣으면 ‘미입력’ 표시가 사라져요.':''}</div></section>`;
  }
+ // 지출 한눈에 보기: 카테고리별 막대·매출 대비·지난달 차이, 누르면 내역
+ function costBreakdown(ym,f,cfg,s,royaltyLabel,feeLabel){
+   const exp=f.tx.filter(r=>r.date.startsWith(ym)&&(r.kind==='expense'||r.kind==='expenseRefund'));
+   const by={};exp.forEach(r=>{const c=r.category||'기타';(by[c]??={amt:0,rows:[]});by[c].amt+=r.kind==='expense'?r.amount:-r.amount;by[c].rows.push(r);});
+   const prev=f.prev&&f.prev.month===shiftYm(ym,-1)?f.prev:null;
+   const buys=ctx.purchases().filter(p=>(p.date||'').startsWith(ym)&&!(cfg.excludedPurchases||[]).map(String).includes(String(p.row))&&Number(p.price));
+   const variable=Object.entries(by).filter(([,v])=>v.amt).sort((a,b)=>b[1].amt-a[1].amt).map(([c,v])=>({key:c,label:c,amt:v.amt,rows:v.rows,color:catColor[c]||catColor['기타'],hint:catHint[c]||'',prev:prev?(prev.cats[c]||0):null}));
+   if(s.purchaseAmount)variable.push({key:'__buy',label:'운영실 비품 주문',amt:s.purchaseAmount,buys,color:catColor.__buy,hint:'비품 탭에서 ‘주문함’으로 기록한 것',prev:null});
+   const fixedItems=(cfg.fixed||[]).filter(x=>Number(x.amount));
+   const auto=[{key:'__fixed',label:'월 고정비',amt:s.fixed,fixedItems,color:catColor.__fixed,hint:fixedItems.map(x=>x.name).join(', ')||'월 비용 설정에서 넣어요'},{key:'__pay',label:'매니저 급여·리워드',amt:s.payroll,color:catColor.__pay,hint:'출근 기록으로 자동 계산'},{key:'__royalty',label:s.hasRoyalty?'로열티 (실제 금액)':`로열티 ${s.royaltyRate}%`,amt:s.royalty,color:catColor.__royalty,hint:s.hasRoyalty?'로열티로 넣은 지출':s.final?`${md(s.lastDay)} 말일 매출 기준`:`말일(${md(s.lastDay)}) 기준 예상`},{key:'__fee',label:s.hasFee?'카드 수수료 (실제 금액)':`카드 수수료 ${s.feeRate}%`,amt:s.fee,color:catColor.__fee,hint:s.hasFee?'결제수수료로 넣은 지출':'추정 · 실제 금액을 넣으면 바뀌어요'}].filter(x=>x.amt||x.key==='__royalty'||x.key==='__fee');
+   const all=[...variable,...auto],total=all.reduce((a,x)=>a+x.amt,0),varTotal=variable.reduce((a,x)=>a+x.amt,0),max=Math.max(1,...all.map(x=>x.amt));
+   const pct=n=>s.sales>0?(Math.round(n/s.sales*1000)/10)+'%':'-';
+   const delta=x=>{if(x.prev==null)return '';const d=x.amt-x.prev;if(!x.prev)return '<span class="fin-new">지난달 없음</span>';if(!d)return '<span>지난달과 같음</span>';return `<span class="${d>0?'fin-up':'fin-down'}">지난달보다 ${d>0?'▲':'▼'} ${won(Math.abs(d))}</span>`;};
+   const row=x=>`<details class="fin-cat"><summary><span class="fin-dot" style="background:${x.color}"></span><span class="fin-cname">${esc(x.label)}${x.rows?` <small>${x.rows.length}건</small>`:x.buys?` <small>${x.buys.length}건</small>`:''}</span><b class="num">${won(x.amt)}</b><span class="fin-bar"><i style="width:${Math.max(2,Math.round(x.amt/max*100))}%;background:${x.color}"></i></span><span class="fin-meta">매출의 ${pct(x.amt)}${x.hint?' · '+esc(x.hint):''} ${delta(x)}</span></summary>
+     <div class="fin-cat-list">${x.rows?x.rows.slice().sort((a,b)=>b.amount-a.amount).map(r=>`<button class="fin-cat-item" data-fin-edit="${esc(r.id)}"><span>${md(r.date)} ${esc(r.name)}</span><b class="num">${r.kind==='expenseRefund'?'−':''}${won(r.amount)}</b></button>`).join(''):x.buys?x.buys.map(b=>`<div class="fin-cat-item"><span>${md(b.date)} ${esc(b.name)}</span><b class="num">${won(Number(b.price))}</b></div>`).join(''):x.fixedItems?x.fixedItems.map(i=>`<div class="fin-cat-item"><span>${esc(i.name)}</span><b class="num">${won(i.amount)}</b></div>`).join(''):`<p class="faint">자동으로 계산되는 금액이에요.</p>`}</div></details>`;
+   const etc=by['기타']?.rows.length||0;
+   return `<h2>지출 한눈에 보기 <span class="sub">${won(total)}${s.sales>0?` · 매출의 ${pct(total)}`:''}</span></h2>
+   ${total?`<div class="fin-stack" role="img" aria-label="지출 구성">${all.filter(x=>x.amt>0).map(x=>`<i title="${esc(x.label)} ${won(x.amt)}" style="flex:${x.amt};background:${x.color}"></i>`).join('')}</div>`:''}
+   ${etc?`<div class="fin-notice">‘기타’ ${etc}건이 있어요. 무엇인지 분류해 두면 돈이 새는 곳이 더 잘 보여요. 아래 ‘기타’를 눌러 하나씩 고칠 수 있어요.</div>`:''}
+   <div class="fin-grp"><b>그때그때 나가는 돈</b><span class="num">${won(varTotal)}</span></div><p class="faint fin-grp-sub">새는 돈이 생기기 쉬운 곳이에요. 줄을 누르면 내역이 펼쳐지고, 내역을 누르면 고칠 수 있어요.${prev?'':' 지난달 기록이 쌓이면 지난달과 비교가 보여요.'}</p>
+   <div class="fin-cats">${variable.length?variable.map(row).join(''):'<div class="card empty">이달 넣은 지출이 없어요.</div>'}</div>
+   <div class="fin-grp"><b>매달 정해진 돈·자동 계산</b><span class="num">${won(total-varTotal)}</span></div>
+   <div class="fin-cats">${auto.map(row).join('')}</div>`;
+ }
  function view(c){
    ctx=c;if(!ctx.isOwner())return '<div class="card empty">점주만 볼 수 있어요.</div>';
    const ym=ctx.month(), f=data();
@@ -78,7 +106,7 @@
 
    ${salesCalendar(ym,daily,s)}
 
-   <section><h2>비용이 어디에 쓰였나요?</h2><div class="list">${[['직접 넣은·가져온 운영비',s.variable-s.purchaseAmount],['운영실 비품 주문',s.purchaseAmount],['월 고정비',s.fixed],['급여·리워드 (근무 기록 기준)',s.payroll],[royaltyLabel,s.royalty],[feeLabel,s.fee]].map(([l,n])=>`<div class="item"><span>${esc(l)}</span><b class="num">${won(n)}</b></div>`).join('')}</div>
+   <section>${costBreakdown(ym,f,cfg,s,royaltyLabel,feeLabel)}
    <div class="faint">급여는 관리 탭과 같은 방식(근무일 × 1시간 30분 × 시급 + 리워드)이고, 그만둔 매니저의 그 달 근무도 넣어요. 시급은 지금 등록된 값으로 계산해요. 로열티를 실제 운영비(분류 ‘로열티’)로 넣으면 예상액 대신 그 금액을 써요. 카드 수수료도 토스 정산 내역의 실제 수수료를 ‘결제수수료’ 분류로 넣으면 추정 대신 그 금액을 써요.</div>
    ${buys.length?`<details class="fin-details"><summary>비품 주문 중복 확인 · ${buys.length}건</summary><p class="faint">카드 사용내역에도 있는 주문이면 여기서 빼 주세요. 두 번 계산하지 않게요.</p>${buys.map(b=>`<label class="fin-check"><input type="checkbox" data-fin-purchase="${esc(b.row)}" ${(cfg.excludedPurchases||[]).includes(String(b.row))?'checked':''}>손익에서 빼기 · ${esc(b.date)} ${esc(b.name)} ${won(Number(b.price)||0)}</label>`).join('')}</details>`:''}</section>
 

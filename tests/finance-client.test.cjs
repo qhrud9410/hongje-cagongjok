@@ -27,7 +27,7 @@ test('일 매출·로열티(말일 기준)·빠진 날·비율 미설정 안내'
  assert.match(html,/1\/15일 입력/);assert.match(html,/로열티 비율 미설정/);assert.match(html,/매출 안 넣은 날 14일/);
  const f=fixture(fin(tx,{'2026-11':{fixed:[{name:'월세',amount:100000}],royaltyRate:10,confirmed:true,excludedPurchases:[]}}));
  html=f.api.view(f.ctx);
- assert.match(html,/로열티 10% · 말일\(11\/30\) 기준 예상/);assert.match(html,/50,000원/);
+ assert.match(html,/로열티 10%/);assert.match(html,/말일\(11\/30\) 기준 예상/);assert.match(html,/50,000원/);
  // 500,000 − 월세 100,000 − 급여 16,050 − 로열티 50,000
  assert.match(html,/333,950원/);
 });
@@ -48,7 +48,18 @@ test('카드 수수료 줄과 미설정 안내',()=>{
  let f=fixture(fin(tx,{'2026-11':{fixed:[],royaltyRate:10,confirmed:true,excludedPurchases:[]}}));
  assert.match(f.api.view(f.ctx),/카드 수수료율 미설정/);
  f=fixture(fin(tx,{'2026-11':{fixed:[],royaltyRate:10,feeRate:1.5,confirmed:true,excludedPurchases:[]}}));
- const html=f.api.view(f.ctx);assert.match(html,/카드 수수료 1.5% \(추정\)/);assert.match(html,/15,000원/);assert.match(html,/예상 순수익/);
+ const html=f.api.view(f.ctx);assert.match(html,/카드 수수료 1.5%/);assert.match(html,/추정 · 실제 금액을 넣으면 바뀌어요/);assert.match(html,/15,000원/);assert.match(html,/예상 순수익/);
  // 1,000,000 − 급여 16,050 − 로열티 100,000 − 수수료 15,000
  assert.match(html,/868,950원/);
+});
+test('지출 한눈에 보기: 카테고리 합계·매출 대비·지난달 비교·기타 안내',()=>{
+ const tx=[{id:'toss-day-2026-11-01',date:'2026-11-01',kind:'sale',source:'toss',name:'x',amount:1000000,category:'매출'},
+  {id:'t1',date:'2026-11-02',kind:'expense',source:'manual',name:'원두',amount:50000,category:'원두·음료'},
+  {id:'t2',date:'2026-11-03',kind:'expense',source:'manual',name:'젤리',amount:20000,category:'간식'},
+  {id:'t3',date:'2026-11-03',kind:'expense',source:'manual',name:'뭔가',amount:7000,category:'기타'}];
+ const f=fixture({month:'2026-11',tx,months:{'2026-11':{fixed:[{name:'월세',amount:100000}],royaltyRate:10,feeRate:1,confirmed:true,excludedPurchases:[]}},prev:{month:'2026-10',cats:{'원두·음료':40000}}});
+ const html=f.api.view(f.ctx);
+ assert.match(html,/지출 한눈에 보기/);assert.match(html,/원두·음료/);assert.match(html,/매출의 5%/);
+ assert.match(html,/지난달보다 ▲ 10,000원/);assert.match(html,/지난달 없음/);
+ assert.match(html,/‘기타’ 1건/);assert.match(html,/월세/);assert.match(html,/매니저 급여·리워드/);
 });

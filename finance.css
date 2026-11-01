@@ -12,3 +12,18 @@
 .fin-cal .fin-day.missing{border-style:dashed;border-color:var(--warn);background:var(--warn-soft)}.fin-cal .fin-day .miss{font-size:10.5px;color:var(--warn);font-weight:600;margin-top:auto}
 .fin-cal .fin-day.future{opacity:.45;cursor:default}
 @media(max-width:420px){.fin-cal .fin-day .amt{font-size:11.5px;letter-spacing:-.5px}.fin-calsum b{font-size:13px}}
+.fin-stack{display:flex;height:14px;border-radius:7px;overflow:hidden;gap:2px;margin:6px 0 4px}.fin-stack i{display:block;min-width:3px}
+.fin-grp{display:flex;justify-content:space-between;align-items:baseline;margin:16px 2px 2px;font-size:14.5px}.fin-grp-sub{margin:0 2px 6px;font-size:12.5px}
+.fin-cats{display:grid;gap:6px}
+.fin-cat{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.fin-cat>summary{list-style:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;row-gap:5px;align-items:center;padding:10px 12px;cursor:pointer}
+.fin-cat>summary::-webkit-details-marker{display:none}
+.fin-dot{width:10px;height:10px;border-radius:50%}
+.fin-cname{font-weight:600;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fin-cname small{font-weight:400;color:var(--ink-3)}
+.fin-bar{grid-column:2/4;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.fin-bar i{display:block;height:100%;border-radius:3px}
+.fin-meta{grid-column:2/4;font-size:12px;color:var(--ink-2);line-height:1.5}
+.fin-up{color:var(--bad);font-weight:600;white-space:nowrap}.fin-down{color:var(--good);font-weight:600;white-space:nowrap}.fin-new{color:var(--ink-3);white-space:nowrap}
+.fin-cat[open]>summary{border-bottom:1px solid var(--line)}
+.fin-cat-list{display:grid;padding:4px 6px 8px}
+.fin-cat-item{display:flex;justify-content:space-between;gap:10px;padding:8px 6px;font:inherit;font-size:13px;color:var(--ink);background:none;border:0;border-bottom:1px solid var(--line);text-align:left;cursor:pointer}.fin-cat-item:last-child{border-bottom:0}.fin-cat-item span{min-width:0;overflow-wrap:anywhere}.fin-cat-item b{white-space:nowrap}
+div.fin-cat-item{cursor:default}
