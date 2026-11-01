@@ -29,6 +29,27 @@
    catch(e){if(err)err.textContent=e.message||'저장하지 못했어요.';else ctx.toast(e.message);if(btn){btn.disabled=false;btn.textContent=btn.dataset.label;}}
  }
 
+ // 금액을 달력 칸에 맞게 짧게: 434,500 → 43.5만, 8,000 → 8천
+ const short=n=>{n=Math.round(n);if(Math.abs(n)>=10000){const v=Math.round(n/1000)/10;return (Number.isInteger(v)?v:v.toFixed(1))+'만';}if(Math.abs(n)>=1000)return Math.round(n/1000)+'천';return String(n);};
+ const shiftYm=(ym,n)=>{const [y,m]=ym.split('-').map(Number);const d=new Date(Date.UTC(y,m-1+n,1));return d.toISOString().slice(0,7);};
+ function salesCalendar(ym,daily,s){
+   const today=ctx.today(),n=C.daysIn(ym),lead=new Date(ym+'-01T00:00:00Z').getUTCDay();
+   const vals=Object.values(daily).map(v=>v.sales-v.refunds),max=Math.max(1,...vals);
+   const total=vals.reduce((a,b)=>a+b,0),days=Object.keys(daily).length;
+   const best=Object.entries(daily).sort((a,b)=>(b[1].sales-b[1].refunds)-(a[1].sales-a[1].refunds))[0];
+   let cells='일월화수목금토'.split('').map((d,i)=>`<div class="dow ${i===0?'sun':i===6?'sat':''}">${d}</div>`).join('');
+   for(let i=0;i<lead;i++)cells+='<div class="day blank" aria-hidden="true"></div>';
+   for(let d=1;d<=n;d++){
+     const date=`${ym}-${String(d).padStart(2,'0')}`,v=daily[date],future=date>today,net=v?v.sales-v.refunds:0;
+     const heat=v&&net>0?Math.round(12+60*net/max):0;
+     const cls=['day','fin-day',heat>45?'hot':'',date===today?'today':'',future?'future':'',!v&&!future?'missing':''].join(' ');
+     cells+=`<button class="${cls}" data-fin-day="${date}" ${future?'disabled':''} style="${heat?`background:color-mix(in srgb,var(--accent) ${heat}%,var(--surface))`:''}" aria-label="${md(date)} ${v?'매출 '+won(net):future?'':'매출 미입력'}"><span class="dn">${d}</span>${v?`<span class="amt">${short(net)}</span>${v.refunds?`<span class="rf">−${short(v.refunds)}</span>`:''}`:future?'':'<span class="miss">미입력</span>'}</button>`;
+   }
+   return `<section><div class="calhead"><button class="btn small ghost" data-fin-ym="${shiftYm(ym,-1)}" aria-label="이전 달">←</button><b>${esc(ctx.monthLabel(ym))} 일 매출</b><button class="btn small ghost" data-fin-ym="${shiftYm(ym,1)}" aria-label="다음 달">→</button></div>
+   <div class="fin-calsum"><div><span>합계</span><b class="num">${won(total)}</b></div><div><span>하루 평균</span><b class="num">${days?won(Math.round(total/days)):'-'}</b></div><div><span>가장 많은 날</span><b class="num">${best?`${md(best[0])} · ${short(best[1].sales-best[1].refunds)}`:'-'}</b></div></div>
+   <div class="cal fin-cal">${cells}</div>
+   <div class="faint" style="font-size:12.5px">${s.daysEntered}/${s.daysPassed}일 입력 · 날짜를 누르면 그날 매출을 넣거나 고칠 수 있어요. 색이 진할수록 매출이 많은 날이에요.${s.missingDays.length?' 쉬는 날은 0원으로 넣으면 ‘미입력’ 표시가 사라져요.':''}</div></section>`;
+ }
  function view(c){
    ctx=c;if(!ctx.isOwner())return '<div class="card empty">점주만 볼 수 있어요.</div>';
    const ym=ctx.month(), f=data();
@@ -55,9 +76,7 @@
    <div class="row"><button class="btn primary" data-fin="day">+ 일 매출</button><button class="btn" data-fin="add">+ 비용·기타 거래</button><button class="btn" data-fin="import">파일 가져오기</button><button class="btn" data-fin="settings">월 비용 설정</button></div>
    <p class="faint">부가세 포함 금액 기준의 운영 참고값이에요. 세금·감가상각·안 넣은 비용은 빠져 있어서 최종 순이익과 달라요. 금융 자동 연동은 아직 안 되어 있어요.</p></section>
 
-   <section><div class="spread"><h2>일 매출 <span class="sub">${s.daysEntered}/${s.daysPassed}일 입력</span></h2></div>
-   ${s.missingDays.length?`<div class="fin-notice">안 넣은 날: ${s.missingDays.slice(0,40).map(d=>`<button class="fin-chip" data-fin-day="${d}">${md(d)}</button>`).join('')}${s.missingDays.length>40?' …':''}<br><span class="faint">쉬는 날은 0원으로 넣으면 입력한 날로 셀게요.</span></div>`:''}
-   <div class="list">${dayList.length?dayList.map(([d,v])=>`<button class="item fin-transaction" data-fin-day="${d}"><div><div class="nm">${md(d)} ${'일월화수목금토'[new Date(d+'T00:00:00Z').getUTCDay()]}</div>${v.refunds?`<div class="faint">취소·환불 ${won(v.refunds)}</div>`:''}</div><b class="num">${won(v.sales-v.refunds)}</b></button>`).join(''):'<div class="card empty">토스 POS의 하루 매출 합계를 넣어 주세요.</div>'}</div></section>
+   ${salesCalendar(ym,daily,s)}
 
    <section><h2>비용이 어디에 쓰였나요?</h2><div class="list">${[['직접 넣은·가져온 운영비',s.variable-s.purchaseAmount],['운영실 비품 주문',s.purchaseAmount],['월 고정비',s.fixed],['급여·리워드 (근무 기록 기준)',s.payroll],[royaltyLabel,s.royalty],[feeLabel,s.fee]].map(([l,n])=>`<div class="item"><span>${esc(l)}</span><b class="num">${won(n)}</b></div>`).join('')}</div>
    <div class="faint">급여는 관리 탭과 같은 방식(근무일 × 1시간 30분 × 시급 + 리워드)이고, 그만둔 매니저의 그 달 근무도 넣어요. 시급은 지금 등록된 값으로 계산해요. 로열티를 실제 운영비(분류 ‘로열티’)로 넣으면 예상액 대신 그 금액을 써요. 카드 수수료도 토스 정산 내역의 실제 수수료를 ‘결제수수료’ 분류로 넣으면 추정 대신 그 금액을 써요.</div>
@@ -187,6 +206,7 @@
   el.querySelector('#fin-filter')?.addEventListener('change',e=>{filter=e.target.value;ctx.render();});
   el.querySelectorAll('[data-fin-edit]').forEach(b=>b.onclick=()=>entry(b.dataset.finEdit));
   el.querySelectorAll('[data-fin-day]').forEach(b=>b.onclick=()=>dayEntry(b.dataset.finDay));
+  el.querySelectorAll('[data-fin-ym]').forEach(b=>b.onclick=()=>ctx.setMonth(b.dataset.finYm));
   el.querySelectorAll('[data-fin-purchase]').forEach(b=>b.onchange=async()=>{b.disabled=true;try{await ctx.call('financeMonthSave',{ym:ctx.month(),purchase:b.dataset.finPurchase,exclude:b.checked});await ctx.refresh();}catch(e){b.checked=!b.checked;b.disabled=false;ctx.toast(e.message);}});
   const today=ctx.today(),ym=ctx.month();
   const actions={day:()=>dayEntry(today.startsWith(ym)?today:C.lastDay(ym)),add:()=>entry(),settings,classify,import:importer,

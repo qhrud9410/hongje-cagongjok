@@ -6,3 +6,9 @@
 .fin-crow{display:grid;grid-template-columns:1fr auto;gap:6px 10px;padding:10px;border:1px solid var(--line);border-radius:8px}
 .fin-cname{min-width:0;overflow-wrap:anywhere;display:grid}.fin-cname .faint{font-size:12px}.fin-crow select{min-width:0;width:100%}
 #fin-entry input[readonly]{opacity:.7}
+.fin-calsum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:4px 0 2px}.fin-calsum span{display:block;font-size:12px;color:var(--ink-2)}.fin-calsum b{display:block;font-size:14.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fin-cal .fin-day{min-height:58px;color:var(--ink);font:inherit;padding:5px 4px 6px}.fin-cal .fin-day .amt{font-size:13px;font-weight:700;margin-top:auto;white-space:nowrap;letter-spacing:-.4px;font-variant-numeric:tabular-nums}.fin-cal .fin-day.hot .dn,.fin-cal .fin-day.hot .amt{color:var(--accent-ink)}.fin-cal .fin-day.hot .rf{color:var(--accent-ink);opacity:.85}
+.fin-cal .fin-day .rf{font-size:10px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fin-cal .fin-day.missing{border-style:dashed;border-color:var(--warn);background:var(--warn-soft)}.fin-cal .fin-day .miss{font-size:10.5px;color:var(--warn);font-weight:600;margin-top:auto}
+.fin-cal .fin-day.future{opacity:.45;cursor:default}
+@media(max-width:420px){.fin-cal .fin-day .amt{font-size:11.5px;letter-spacing:-.5px}.fin-calsum b{font-size:13px}}
