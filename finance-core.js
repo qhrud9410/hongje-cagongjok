@@ -20,6 +20,7 @@
   function validDate(s){return /^20\d{2}-\d{2}-\d{2}$/.test(s)&&!isNaN(Date.parse(s+'T00:00:00Z'))&&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;}
   // "2026.11.01", "2026/11/1 13:22", "20261101" → "2026-11-01"
   function parseDate(raw){
+    const sd=serialDate(raw);if(sd)return sd;
     const t=String(raw??'').trim();
     const m=t.match(/^(\d{4})[.\/-]\s*(\d{1,2})[.\/-]\s*(\d{1,2})/)||t.match(/^(\d{4})(\d{2})(\d{2})(?!\d)/);
     const d=m?`${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`:t;
@@ -91,7 +92,7 @@
   }
   // 토스 일별 집계: 같은 날짜가 여러 줄(결제수단별 등)이면 더한다. 음수 매출은 취소로 본다.
   // 날짜 칸이 날짜처럼 안 생긴 줄(합계·소계·빈 줄)은 건너뛰고 몇 줄인지 알려 준다
-  const looksDate=v=>/^\s*\d{4}[.\/-]?\s*\d{1,2}[.\/-]?\s*\d{1,2}/.test(String(v??''));
+  const looksDate=v=>serialDate(v)!==null||/^\s*\d{4}[.\/-]?\s*\d{1,2}[.\/-]?\s*\d{1,2}/.test(String(v??''));
   function toDays(cells,map){
     const days={};let skipped=0;
     cells.forEach((c,i)=>{
@@ -108,6 +109,92 @@
   }
   function csvCell(v){const s=String(v??'');return '"'+(/^[=+@\-\t\r]/.test(s)?"'":'')+s.replace(/"/g,'""')+'"';}
   function exportCSV(rows){return '﻿'+[['날짜','구분','내용','금액','분류','출처','거래번호'],...rows.map(r=>[r.date,r.kind,r.name,r.amount,r.category,r.source,r.externalId||''])].map(r=>r.map(csvCell).join(',')).join('\r\n');}
-  const api={looksDate,amount,signedAmount,validDate,parseDate,validate,summarize,dailyTotals,parseCSV,toDays,exportCSV,kinds,isDayRow,daysIn,lastDay};
+  /* ---- ZIP·엑셀(xlsx) 읽기: 외부 라이브러리 없이 브라우저 기본 기능(DecompressionStream)만 쓴다 ---- */
+  const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+  const crcByte=(c,b)=>(CRC[(c^b)&0xff]^(c>>>8))>>>0;
+  // 토스가 매출 리포트에 거는 ZIP 비밀번호(전통 ZipCrypto) 풀기
+  function zipDecrypt(data,password){
+    let k0=0x12345678,k1=0x23456789,k2=0x34567890;
+    const upd=b=>{k0=crcByte(k0,b);k1=(Math.imul((k1+(k0&0xff))>>>0,134775813)+1)>>>0;k2=crcByte(k2,(k1>>>24)&0xff);};
+    for(const b of new TextEncoder().encode(password))upd(b);
+    const out=new Uint8Array(data.length);
+    for(let i=0;i<data.length;i++){const t=(k2|2)&0xffff;const c=data[i]^((Math.imul(t,t^1)>>>8)&0xff);out[i]=c;upd(c);}
+    return out.subarray(12);
+  }
+  function openZip(ab){
+    const u8=new Uint8Array(ab),dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);let e=-1;
+    for(let i=u8.length-22;i>=Math.max(0,u8.length-65558);i--)if(dv.getUint32(i,true)===0x06054b50){e=i;break;}
+    if(e<0)throw new Error('파일을 읽지 못했어요. 엑셀(xlsx)·ZIP·CSV 파일인지 확인해 주세요.');
+    const files={},td=new TextDecoder();let p=dv.getUint32(e+16,true);
+    for(let k=0,n=dv.getUint16(e+10,true);k<n;k++){
+      if(dv.getUint32(p,true)!==0x02014b50)throw new Error('파일이 손상됐어요.');
+      const flags=dv.getUint16(p+8,true),method=dv.getUint16(p+10,true),crc=dv.getUint32(p+16,true),csize=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),off=dv.getUint32(p+42,true);
+      files[td.decode(u8.subarray(p+46,p+46+nl))]={encrypted:!!(flags&1),method,crc,csize,off};p+=46+nl+xl+cl;
+    }
+    async function bytes(name,password=''){
+      const f=files[name];if(!f)return null;
+      if(f.method!==0&&f.method!==8)throw new Error('지원하지 않는 압축 방식이에요. 압축을 풀어서 엑셀 파일만 올려 주세요.');
+      const s=f.off+30+dv.getUint16(f.off+26,true)+dv.getUint16(f.off+28,true);
+      let data=u8.subarray(s,s+f.csize);
+      if(f.encrypted){if(!password)throw new Error('비밀번호가 필요해요.');data=zipDecrypt(data,password);}
+      let out=data;
+      if(f.method===8){try{out=new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());}catch(x){throw new Error(f.encrypted?'비밀번호가 맞지 않아요.':'파일이 손상됐어요.');}}
+      let c=0xffffffff;for(const b of out)c=crcByte(c,b);
+      if(((c^0xffffffff)>>>0)!==f.crc)throw new Error(f.encrypted?'비밀번호가 맞지 않아요.':'파일이 손상됐어요.');
+      return out;
+    }
+    return {names:Object.keys(files),encrypted:n=>!!files[n]?.encrypted,bytes,text:async(n,pw)=>{const b=await bytes(n,pw);return b&&new TextDecoder().decode(b);}};
+  }
+  const isZip=ab=>{const u=new Uint8Array(ab,0,Math.min(4,ab.byteLength));return u[0]===0x50&&u[1]===0x4b&&u[2]===3&&u[3]===4;};
+  const ent=s=>s.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi,(m,e)=>e[0]==='#'?String.fromCodePoint(e[1]==='x'||e[1]==='X'?parseInt(e.slice(2),16):parseInt(e.slice(1),10)):{lt:'<',gt:'>',amp:'&',quot:'"',apos:"'"}[e.toLowerCase()]);
+  const tText=x=>[...x.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m=>ent(m[1])).join('');
+  const attr=(s,n)=>{const m=s.match(new RegExp('(?:^|\\s)'+n+'="([^"]*)"'));return m?ent(m[1]):'';};
+  const colIdx=ref=>{let n=0;for(const ch of ref.replace(/\d+/g,''))n=n*26+ch.charCodeAt(0)-64;return n-1;};
+  // 엑셀 파일 → {시트이름: [[칸,...],...]}
+  async function readXlsx(ab){
+    const z=openZip(ab);
+    const wb=await z.text('xl/workbook.xml');if(!wb)throw new Error('엑셀 파일이 아니에요.');
+    const rels=(await z.text('xl/_rels/workbook.xml.rels'))||'';
+    const shared=[...((await z.text('xl/sharedStrings.xml'))||'').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>tText(m[1]));
+    const target={};for(const m of rels.matchAll(/<Relationship\b([^>]*)\/?>/g))target[attr(m[1],'Id')]=attr(m[1],'Target');
+    const book={};
+    for(const m of wb.matchAll(/<sheet\b([^>]*)\/?>/g)){
+      const name=attr(m[1],'name'),t=target[attr(m[1],'r:id')];if(!t)continue;
+      const xml=await z.text(t.startsWith('/')?t.slice(1):'xl/'+t.replace(/^\.\//,''));if(!xml)continue;
+      const rows=[];
+      for(const r of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)){
+        const row=[];
+        for(const c of (r[1]||'').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+          const a=c[1],inner=c[2]||'',ref=attr(a,'r'),type=attr(a,'t'),v=(inner.match(/<v>([\s\S]*?)<\/v>/)||[])[1];
+          let val=null;
+          if(type==='s')val=v!=null?shared[Number(v)]??'':'';
+          else if(type==='inlineStr')val=tText(inner);
+          else if(type==='str'||type==='e')val=v!=null?ent(v):'';
+          else if(type==='b')val=v==='1';
+          else if(v!=null)val=Number(v);
+          row[ref?colIdx(ref):row.length]=val;
+        }
+        rows.push(Array.from(row,x=>x??null));
+      }
+      book[name]=rows.filter(r=>r.some(x=>x!==null&&x!==''));
+    }
+    return book;
+  }
+  // 토스 매출리포트(엑셀)를 알아보고 하루 합계로 바꾼다. '결제 합계' 시트의 결제금액과 맞는지도 확인.
+  function tossReport(book){
+    const rows=book['결제 상세내역'];if(!rows||!rows.length)return null;
+    const h=rows[0].map(x=>String(x??'').trim()),iD=h.indexOf('결제기준일자'),iA=h.indexOf('결제금액');
+    if(iD<0||iA<0)return null;
+    const r=toDays(rows.slice(1),{date:iD,sales:iA,refunds:''});
+    const net=r.days.reduce((s,d)=>s+d.sales-d.refunds,0);
+    let check=null;const t=book['결제 합계'];
+    if(t){const hi=t.findIndex(x=>x.some(c=>String(c??'').trim()==='결제금액'));if(hi>=0){const ci=t[hi].findIndex(c=>String(c??'').trim()==='결제금액');const v=t.slice(hi+1).map(x=>x[ci]).find(x=>x!==null&&x!=='');if(v!=null){const a=signedAmount(String(v));check=a.negative?-a.amount:a.amount;}}}
+    const basis=book['데이터 기준'];let period='';
+    if(basis){const hi=basis.findIndex(x=>x.includes('시작일자'));const v=hi>=0&&basis.slice(hi+1).find(x=>looksDate(x[0]));if(v)period=`${v[0]} ~ ${v[1]||''}`.trim();}
+    return {...r,net,check,matches:check===null?null:check===net,period};
+  }
+  // 엑셀 날짜 칸이 숫자(일련번호)로 올 때
+  const serialDate=v=>{const n=Number(v);if(typeof v!=='number'||!(n>30000&&n<80000))return null;return new Date(Date.UTC(1899,11,30)+Math.floor(n)*864e5).toISOString().slice(0,10);};
+  const api={openZip,isZip,readXlsx,tossReport,serialDate,looksDate,amount,signedAmount,validDate,parseDate,validate,summarize,dailyTotals,parseCSV,toDays,exportCSV,kinds,isDayRow,daysIn,lastDay};
   if(typeof module!=='undefined')module.exports=api;else root.FinanceCore=api;
 })(typeof window!=='undefined'?window:globalThis);

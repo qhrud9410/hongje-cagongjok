@@ -60,3 +60,21 @@ test('매출이 없는 달을 확정 매출로 취급하지 않는다',()=>{
  assert.equal(C.summarize([],'2026-11').hasSales,false);
  assert.equal(C.summarize(day('2026-11-01',0),'2026-11').hasSales,true);
 });
+const fs=require('node:fs'),path=require('node:path');
+const fx=n=>{const b=fs.readFileSync(path.join(__dirname,'fixtures',n));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);};
+test('토스 매출리포트(엑셀): 결제 상세내역으로 일 합계, 취소는 따로, 결제 합계와 대조',async()=>{
+ const r=C.tossReport(await C.readXlsx(fx('toss-sample.xlsx')));
+ assert.deepEqual(r.days,[{date:'2026-09-01',sales:104900,refunds:5900},{date:'2026-09-02',sales:5900,refunds:0},{date:'2026-09-03',sales:6900,refunds:0}]);
+ assert.equal(r.net,111800);assert.equal(r.check,111800);assert.equal(r.matches,true);assert.equal(r.period,'2026-09-01 ~ 2026-09-30');
+});
+test('토스 ZIP(비밀번호): 비밀번호 없음·틀림을 알려 주고, 맞으면 연다',async()=>{
+ const ab=fx('toss-sample.zip');assert.equal(C.isZip(ab),true);
+ const z=C.openZip(ab),n=z.names.find(x=>x.endsWith('.xlsx'));assert.equal(z.encrypted(n),true);
+ await assert.rejects(z.bytes(n,''),/비밀번호가 필요/);await assert.rejects(z.bytes(n,'1234'),/맞지 않아요/);
+ const b=await z.bytes(n,'0000');const r=C.tossReport(await C.readXlsx(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)));
+ assert.equal(r.net,111800);
+});
+test('토스 리포트가 아닌 엑셀은 null, 엑셀 날짜 숫자도 읽는다',async()=>{
+ assert.equal(C.tossReport({'시트1':[['날짜','금액'],['2026-09-01',1]]}),null);
+ assert.equal(C.parseDate(46266),'2026-09-01');assert.equal(C.looksDate(46266),true);
+});

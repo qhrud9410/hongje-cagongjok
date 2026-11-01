@@ -115,8 +115,39 @@
  }
  async function chooseFile(accept){return new Promise(resolve=>{const i=document.createElement('input');i.type='file';i.accept=accept;i.onchange=()=>resolve(i.files[0]);i.oncancel=()=>resolve(null);i.click();});}
  async function importer(){
-   const file=await chooseFile('.csv,text/csv');if(!file)return;
-   try{if(file.size>4*1024*1024)throw Error('4MB 이하 CSV 파일을 골라 주세요.');const bytes=await file.arrayBuffer();let text=new TextDecoder('utf-8',{fatal:false}).decode(bytes);if(text.includes('�'))text=new TextDecoder('euc-kr').decode(bytes);draft=C.parseCSV(text);if(draft.rows.length>5000)throw Error('한 번에 5,000줄 이하로 가져와 주세요.');mapping();}catch(e){ctx.toast(e.message);}
+   const file=await chooseFile('.xlsx,.zip,.csv,text/csv,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');if(!file)return;
+   try{
+     if(file.size>15*1024*1024)throw Error('15MB 이하 파일을 골라 주세요.');
+     const ab=await file.arrayBuffer();
+     if(C.isZip(ab)){
+       const z=C.openZip(ab);
+       if(z.names.includes('xl/workbook.xml'))return await fromBook(await C.readXlsx(ab));
+       const x=z.names.find(n=>/\.xlsx$/i.test(n)&&!n.startsWith('__MACOSX'));
+       if(!x)throw Error('ZIP 안에 엑셀 파일이 없어요.');
+       if(z.encrypted(x))return askPassword(z,x);
+       return await fromBook(await C.readXlsx(toAb(await z.bytes(x))));
+     }
+     let text=new TextDecoder('utf-8',{fatal:false}).decode(ab);if(text.includes('�'))text=new TextDecoder('euc-kr').decode(ab);
+     draft=C.parseCSV(text);if(draft.rows.length>5000)throw Error('한 번에 5,000줄 이하로 가져와 주세요.');mapping();
+   }catch(e){ctx.toast(e.message);}
+ }
+ const toAb=b=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);
+ // 토스 매출리포트 ZIP은 비밀번호가 걸려 온다. 비밀번호는 여기서 파일을 여는 데만 쓰고 저장하지 않는다.
+ function askPassword(z,name){
+   ctx.openSheet(`<h3>비밀번호가 걸린 파일이에요</h3><p class="faint">토스에서 내려받을 때 정한 비밀번호를 넣어 주세요. 비밀번호는 저장하지 않아요.</p><form><div class="field"><label>비밀번호<input name="pw" type="password" autocomplete="off" required></label></div><div class="acts"><button type="button" class="btn" data-close>닫기</button><button class="btn primary">열기</button></div><p role="alert"></p></form>`,sh=>{
+     const form=sh.querySelector('form');
+     form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('.btn.primary'),err=sh.querySelector('[role=alert]');btn.disabled=true;err.textContent='';
+       try{await fromBook(await C.readXlsx(toAb(await z.bytes(name,form.elements.pw.value))));}catch(x){err.textContent=x.message;btn.disabled=false;}};
+   });
+ }
+ async function fromBook(book){
+   const t=C.tossReport(book);
+   if(t){if(!t.days.length)throw Error('매출 내역이 없는 리포트예요.');return previewDays(t.days,0,t);}
+   const name=Object.keys(book).find(n=>book[n].length>=2);if(!name)throw Error('내용이 있는 시트가 없어요.');
+   const rows=book[name];
+   draft={headers:rows[0].map((h,i)=>String(h??'').trim()||`열 ${i+1}`),rows:rows.slice(1).map(r=>r.map(c=>c??''))};
+   if(draft.rows.length>5000)throw Error('한 번에 5,000줄 이하로 가져와 주세요.');
+   mapping();
  }
  function mapping(){
    const hs=draft.headers,guess=patterns=>hs.findIndex(h=>patterns.some(p=>h.includes(p)));
@@ -136,9 +167,9 @@
     }catch(x){err.textContent=x.message;}};
    });
  }
- function previewDays(days,skippedLines=0){
+ function previewDays(days,skippedLines=0,report=null){
    const have=new Set(data().tx.filter(C.isDayRow).map(r=>r.date));
-   ctx.openSheet(`<h3>일 매출 ${days.length}일</h3>${skippedLines?`<p class="faint">날짜가 없는 줄(합계 등) ${skippedLines}줄은 뺐어요.</p>`:''}<p class="faint">이미 넣은 날 중 이 달 장부에 보이는 날은 ‘바뀜’으로 표시했어요. 다른 달 날짜도 함께 저장돼요.</p><div class="list">${days.slice(0,40).map(d=>`<div class="item"><div>${d.date}${have.has(d.date)?' <span class="pill s-warn">바뀜</span>':''}${d.refunds?`<br><span class="faint">취소 ${won(d.refunds)}</span>`:''}</div><b class="num">${won(d.sales-d.refunds)}</b></div>`).join('')}</div>${days.length>40?`<p>처음 40일만 보여요.</p>`:''}<div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="fin-commit">장부에 넣기</button></div><p role="alert"></p>`,sh=>{
+   ctx.openSheet(`<h3>일 매출 ${days.length}일</h3>${report?`<div class="fin-notice"><b>토스 매출리포트</b>${report.period?' · '+esc(report.period):''}<br>합계 ${won(report.net)}${report.matches===true?' · 토스 ‘결제 합계’와 일치해요 ✓':report.matches===false?` · ⚠ 토스 ‘결제 합계’(${won(report.check)})와 달라요. 파일을 확인해 주세요.`:''}</div>`:''}${skippedLines?`<p class="faint">날짜가 없는 줄(합계 등) ${skippedLines}줄은 뺐어요.</p>`:''}<p class="faint">이미 넣은 날 중 이 달 장부에 보이는 날은 ‘바뀜’으로 표시했어요. 다른 달 날짜도 함께 저장돼요.</p><div class="list">${days.slice(0,40).map(d=>`<div class="item"><div>${d.date}${have.has(d.date)?' <span class="pill s-warn">바뀜</span>':''}${d.refunds?`<br><span class="faint">취소 ${won(d.refunds)}</span>`:''}</div><b class="num">${won(d.sales-d.refunds)}</b></div>`).join('')}</div>${days.length>40?`<p>처음 40일만 보여요.</p>`:''}<div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="fin-commit">장부에 넣기</button></div><p role="alert"></p>`,sh=>{
      sh.querySelector('#fin-commit').onclick=e=>submit(sh,e.target,()=>ctx.call('financeImport',{days}),r=>`${r.days}일 매출을 넣었어요.`);
    });
  }
