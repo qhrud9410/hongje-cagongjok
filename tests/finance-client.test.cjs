@@ -6,7 +6,7 @@ function fixture(finance,opts={}){
  const window={FinanceCore:core};
  // localStorage를 일부러 넣지 않는다: 화면이 브라우저 저장을 쓰면 여기서 바로 오류가 난다
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../finance.js'),'utf8'),{window,Date,console,structuredClone});
- const ctx={isOwner:()=>opts.owner!==false,today:()=>opts.today||'2026-11-15',month:()=>opts.month||'2026-11',monthLabel:x=>x,finance:()=>finance,purchases:()=>[],payroll:()=>16050,render(){},call:async()=>{},refresh:async()=>{}};
+ const ctx={isOwner:()=>opts.owner!==false,today:()=>opts.today||'2026-11-15',month:()=>opts.month||'2026-11',monthLabel:x=>x,finance:()=>finance,purchases:()=>[],payroll:()=>16050,payrollDetail:()=>[{name:'영소',days:1,payTo:'',amount:16050,reward:0}],render(){},call:async()=>{},refresh:async()=>{}};
  return {api:window.HongjeFinance,ctx};
 }
 const fin=(tx=[],months={})=>({month:'2026-11',tx,months});
@@ -61,5 +61,5 @@ test('지출 한눈에 보기: 카테고리 합계·매출 대비·지난달 비
  const html=f.api.view(f.ctx);
  assert.match(html,/지출 한눈에 보기/);assert.match(html,/원두·음료/);assert.match(html,/매출의 5%/);
  assert.match(html,/지난달보다 ▲ 10,000원/);assert.match(html,/지난달 없음/);
- assert.match(html,/‘기타’ 1건/);assert.match(html,/월세/);assert.match(html,/매니저 급여·리워드/);
+ assert.match(html,/‘기타’ 1건/);assert.match(html,/월세/);assert.match(html,/매니저 급여 · 영소 1일/);assert.match(html,/급여 1명/);assert.doesNotMatch(html,/매니저 급여·리워드/);
 });
