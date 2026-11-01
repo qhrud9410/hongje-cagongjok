@@ -403,6 +403,23 @@ const ACTIONS: Record<string, (c: Ctx, p: Row) => Promise<any>> = {
     await managerOk(c, p.mid, p.pin); await failClear("m:" + p.mid); return { owner: false, mid: p.mid };
   },
 
+  /* 점주 PIN 바꾸기 — 지금 PIN을 확인한 뒤 새 PIN으로. 다른 기기는 다음 새로고침 때 로그아웃된다. */
+  async ownerPinChange(c, p) {
+    await ownerOk(c, p.ownerPin);
+    const next = String(p.newPin ?? "").trim();
+    if (!/^\d{4,8}$/.test(next)) fail("새 PIN은 숫자 4~8자리로 넣어 주세요.");
+    if (next === String(p.ownerPin)) fail("지금 PIN과 다른 번호로 정해 주세요.");
+    const mgrs = await c.managers();
+    if (mgrs.some((m) => m.role !== "점주" && m.pin && String(m.pin) === next)) fail("매니저 PIN과 같은 번호는 쓸 수 없어요.");
+    const owner = mgrs.find((m) => m.role === "점주");
+    if (!owner) fail("점주 정보를 찾을 수 없어요.");
+    await upd("managers", owner!.rid, { pin: next });
+    // 예전 방식(설정의 점주PIN)이 남아 있으면 같이 바꾼다 — 그쪽이 먼저 쓰이기 때문
+    if (await c.setting("점주PIN")) await setSetting("점주PIN", next);
+    await failClear("owner");
+    return true;
+  },
+
   async load(c, p) {
     const n = now();
     const month = p.month || n.ym;

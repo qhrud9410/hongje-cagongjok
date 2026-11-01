@@ -143,3 +143,21 @@ test('먼 달을 보면 그 달 근무 기록도 같이 와서 급여 계산이 
   assert.ok(d.att['2026-08-05__m-old'],'2026-08 근무 기록 포함');
   assert.ok(d.managers.find(m=>m.id==='m-old'&&m.active===false));
 });
+
+test('점주 PIN 바꾸기: 지금 PIN 확인, 형식·매니저 PIN 중복 거절, 바꾼 뒤 예전 PIN은 안 됨',async()=>{
+  sb.psql(`truncate auth_fail`,'postgres');
+  await bad('ownerPinChange',{ownerPin:'0000',newPin:'4321'},/PIN이 맞지/);
+  await bad('ownerPinChange',{ownerPin:OWNER,newPin:'12a4'},/숫자 4~8자리/);
+  await bad('ownerPinChange',{ownerPin:OWNER,newPin:OWNER},/다른 번호/);
+  await bad('ownerPinChange',{ownerPin:OWNER,newPin:MGR},/매니저 PIN/);
+  await ok('ownerPinChange',{newPin:'4321'});
+  assert.equal(sb.psql(`select count(*) from auth_fail where k='owner'`,'postgres'),'0','성공하면 틀린 횟수 초기화');
+  const old=await api('load',{ownerPin:OWNER});assert.equal(old.result.isOwner,false);assert.equal(old.result.finance,null);
+  const now=await api('load',{ownerPin:'4321'});assert.equal(now.result.isOwner,true);
+  // 예전 방식 설정값이 있으면 그것도 같이 바뀐다
+  sb.psql(`insert into settings(key,value) values ('점주PIN','4321')`,'postgres');
+  await api('ownerPinChange',{ownerPin:'4321',newPin:OWNER}).then(r=>assert.equal(r.ok,true,r.error));
+  assert.equal(sb.psql(`select value from settings where key='점주PIN'`,'postgres'),OWNER);
+  sb.psql(`delete from settings where key='점주PIN'`,'postgres');
+  assert.equal((await api('load',{ownerPin:OWNER})).result.isOwner,true);
+});

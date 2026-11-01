@@ -706,7 +706,7 @@ function viewAdmin(){
     } }
   html += `<section><div class="spread"><h2>매니저</h2><button class="btn small" data-act="mgr-new">+ 매니저 등록</button></div><div class="list">`;
   Object.entries(S.managers).sort((a,b)=>(a[1].order??0)-(b[1].order??0)).forEach(([id,m])=>{
-    if (m.role==="owner"){ html += `<div class="item"><div style="min-width:0"><div class="nm">${esc(m.name)} <span class="pill s-accent">점주</span></div><div class="faint" style="font-size:13px">정해진 요일 없음 · 매니저 결원 시 대신 청소 · 점주 PIN으로 출근</div></div></div>`; return; }
+    if (m.role==="owner"){ html += `<div class="item"><div style="min-width:0"><div class="nm">${esc(m.name)} <span class="pill s-accent">점주</span></div><div class="faint" style="font-size:13px">정해진 요일 없음 · 매니저 결원 시 대신 청소 · 점주 PIN으로 출근</div></div><div class="acts"><button class="btn small" data-act="owner-pin">PIN 바꾸기</button></div></div>`; return; }
     html += `<div class="item"><div style="min-width:0"><div class="nm">${esc(m.name)} ${m.active===false?`<span class="pill s-off">비활성</span>`:""} ${m.hasPin?"":`<span class="pill s-bad">PIN 없음</span>`}</div><div class="faint" style="font-size:13px">${m.duty==="evening"?"저녁 분리수거 · ":"오전 청소 · "}${(m.days||[]).slice().sort((a,b)=>((a+6)%7)-((b+6)%7)).map(d=>DOW[d]).join("·")||"요일 미지정"} · ${m.payTo&&S.managers[m.payTo]?`급여 → ${esc(S.managers[m.payTo].name)}`:`<span class="num">${won(m.wage)}</span>/시간`}${m.startDate?` · <span class="num">${esc(m.startDate.slice(5).replace("-","/"))}</span> 시작`:""}</div></div><div class="acts"><button class="btn small ghost" data-act="mgr-edit" data-id="${id}">수정</button></div></div>`;
   });
   html += `</div></section>`;
@@ -786,6 +786,7 @@ function bindMain(main){
       "chg-approve":()=>act(()=>call("changeDecide",{id,approve:true}),"확정했어요"),
       "chg-reject":()=>act(()=>call("changeDecide",{id,approve:false}),"거절했어요"),
       "mgr-new":()=>mgrSheet(null),
+      "owner-pin":()=>ownerPinSheet(),
       "mgr-edit":()=>mgrSheet(id),
       "reward-edit":()=>rewardSheet(),
       "cl-edit":()=>checklistSheet(),
@@ -1057,6 +1058,34 @@ function supEditSheet(id){
 }
 
 /* managers & reward & checklist */
+/* 점주 PIN 바꾸기 */
+function ownerPinSheet(){
+  openSheet(`<h3>점주 PIN 바꾸기</h3>
+    <div class="field"><label for="op0">지금 PIN</label><input id="op0" type="password" inputmode="numeric" autocomplete="off" maxlength="8"></div>
+    <div class="field"><label for="op1">새 PIN (숫자 4~8자리)</label><input id="op1" type="password" inputmode="numeric" autocomplete="off" maxlength="8"></div>
+    <div class="field"><label for="op2">새 PIN 한 번 더</label><input id="op2" type="password" inputmode="numeric" autocomplete="off" maxlength="8"></div>
+    <div class="faint" style="font-size:12.5px">바꾸면 점주로 로그인해 둔 다른 휴대폰·컴퓨터는 자동으로 로그아웃돼요. 함께 쓰는 점주에게도 새 PIN을 알려 주세요.</div>
+    <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="go">바꾸기</button></div>
+    <p role="alert" style="color:var(--bad);margin:0"></p>`, sh=>{
+    const go = sh.querySelector("#go"), err = sh.querySelector("[role=alert]");
+    const submit = async()=>{
+      const cur = sh.querySelector("#op0").value.trim(), a = sh.querySelector("#op1").value.trim(), b = sh.querySelector("#op2").value.trim();
+      err.textContent = "";
+      if (!cur){ err.textContent = "지금 PIN을 넣어 주세요."; return; }
+      if (!/^\d{4,8}$/.test(a)){ err.textContent = "새 PIN은 숫자 4~8자리로 넣어 주세요."; return; }
+      if (a !== b){ err.textContent = "새 PIN 두 칸이 서로 달라요."; return; }
+      busyBtn(go, "바꾸는 중…");
+      try{
+        await call("ownerPinChange", {ownerPin:cur, newPin:a});
+        S.ownerPin = a; store.set("ownerPin", a);
+        document.getElementById("sheetRoot").innerHTML = "";
+        toast("점주 PIN을 바꿨어요."); await refresh();
+      }catch(e){ freeBtn(go); err.textContent = errMsg(e); }
+    };
+    go.addEventListener("click", submit);
+    sh.querySelector("#op2").addEventListener("keydown", e=>{ if (e.key==="Enter") submit(); });
+  });
+}
 function mgrSheet(id){
   const m = id ? S.managers[id] : {name:"", days:[], wage:10700, active:true, startDate:"", duty:"morning", payTo:""};
   const payOpts = activeManagers().filter(([oid,o])=>oid!==id && o.role!=="owner");
