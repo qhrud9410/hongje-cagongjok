@@ -257,7 +257,7 @@ async function finDayUpsert(days: { date: string; sales: number; refunds: number
   if (drop.length) await q(db.from("finance_tx").delete().in("id", drop));
 }
 function finMonthRow(x: Row) {
-  return { fixed: Array.isArray(x.fixed) ? x.fixed : [], royaltyRate: Number(x.royaltyRate) || 0, confirmed: !!x.confirmed, excludedPurchases: Array.isArray(x.excludedPurchases) ? x.excludedPurchases.map(String) : [], updatedAt: x.updatedAt || "" };
+  return { fixed: Array.isArray(x.fixed) ? x.fixed : [], royaltyRate: Number(x.royaltyRate) || 0, feeRate: Number(x.feeRate) || 0, confirmed: !!x.confirmed, excludedPurchases: Array.isArray(x.excludedPurchases) ? x.excludedPurchases.map(String) : [], updatedAt: x.updatedAt || "" };
 }
 async function financeFor(month: string) {
   const [tx, mr] = await Promise.all([
@@ -376,7 +376,7 @@ const ACTIONS: Record<string, (c: Ctx, p: Row) => Promise<any>> = {
     const dflt = ex ? null : await q<Row | null>(db.from("finance_month").select("*").eq("ym", "default").maybeSingle());
     const base = finMonthRow(ex || dflt || {});
     if (!ex) { base.confirmed = false; base.excludedPurchases = []; }
-    const row: Row = { ym, fixed: base.fixed, royaltyRate: base.royaltyRate, confirmed: base.confirmed, excludedPurchases: base.excludedPurchases, updatedAt: now().iso };
+    const row: Row = { ym, fixed: base.fixed, royaltyRate: base.royaltyRate, feeRate: base.feeRate, confirmed: base.confirmed, excludedPurchases: base.excludedPurchases, updatedAt: now().iso };
     if ("fixed" in p) {
       if (!Array.isArray(p.fixed) || p.fixed.length > 50) fail("고정비 항목은 50개까지 넣을 수 있어요.");
       row.fixed = p.fixed.map((r: Row) => { const name = String(r?.name ?? "").trim(); if (!name || name.length > 40) fail("고정비 이름을 확인해 주세요."); return { name, amount: finMoney(r.amount) }; });
@@ -385,6 +385,11 @@ const ACTIONS: Record<string, (c: Ctx, p: Row) => Promise<any>> = {
       const v = Number(p.royaltyRate);
       if (!Number.isFinite(v) || v < 0 || v > 100) fail("로열티는 0~100% 범위로 넣어 주세요.");
       row.royaltyRate = v;
+    }
+    if ("feeRate" in p) {
+      const v = Number(p.feeRate);
+      if (!Number.isFinite(v) || v < 0 || v > 100) fail("카드 수수료율은 0~100% 범위로 넣어 주세요.");
+      row.feeRate = v;
     }
     if ("confirmed" in p) row.confirmed = !!p.confirmed;
     if ("purchase" in p) {   // 비품 주문 하나만 넣고 빼서, 다른 기기 변경을 덮어쓰지 않는다
@@ -395,7 +400,7 @@ const ACTIONS: Record<string, (c: Ctx, p: Row) => Promise<any>> = {
       row.excludedPurchases = [...set];
     }
     await q(db.from("finance_month").upsert(row, { onConflict: "ym" }));
-    if (p.alsoDefault && ym !== "default") await q(db.from("finance_month").upsert({ ym: "default", fixed: row.fixed, royaltyRate: row.royaltyRate, confirmed: false, excludedPurchases: [], updatedAt: row.updatedAt }, { onConflict: "ym" }));
+    if (p.alsoDefault && ym !== "default") await q(db.from("finance_month").upsert({ ym: "default", fixed: row.fixed, royaltyRate: row.royaltyRate, feeRate: row.feeRate, confirmed: false, excludedPurchases: [], updatedAt: row.updatedAt }, { onConflict: "ym" }));
     return true;
   },
   async verify(c, p) {

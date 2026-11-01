@@ -43,3 +43,12 @@ test('분류 대기 건이 있으면 한꺼번에 분류 버튼을 보여 준다
  const f=fixture(fin([{id:'t-1',date:'2026-11-03',kind:'review',source:'hyundai',name:'<b>다이소</b>',amount:5000,category:'기타',note:'마이너스(취소)'}]));
  const html=f.api.view(f.ctx);assert.match(html,/한꺼번에 분류하기/);assert.match(html,/&lt;b&gt;다이소/);assert.doesNotMatch(html,/<b>다이소/);
 });
+test('카드 수수료 줄과 미설정 안내',()=>{
+ const tx=[{id:'toss-day-2026-11-01',date:'2026-11-01',kind:'sale',source:'toss',name:'x',amount:1000000,category:'매출'}];
+ let f=fixture(fin(tx,{'2026-11':{fixed:[],royaltyRate:10,confirmed:true,excludedPurchases:[]}}));
+ assert.match(f.api.view(f.ctx),/카드 수수료율 미설정/);
+ f=fixture(fin(tx,{'2026-11':{fixed:[],royaltyRate:10,feeRate:1.5,confirmed:true,excludedPurchases:[]}}));
+ const html=f.api.view(f.ctx);assert.match(html,/카드 수수료 1.5% \(추정\)/);assert.match(html,/15,000원/);assert.match(html,/예상 순수익/);
+ // 1,000,000 − 급여 16,050 − 로열티 100,000 − 수수료 15,000
+ assert.match(html,/868,950원/);
+});

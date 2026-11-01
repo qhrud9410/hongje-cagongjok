@@ -78,3 +78,10 @@ test('토스 리포트가 아닌 엑셀은 null, 엑셀 날짜 숫자도 읽는�
  assert.equal(C.tossReport({'시트1':[['날짜','금액'],['2026-09-01',1]]}),null);
  assert.equal(C.parseDate(46266),'2026-09-01');assert.equal(C.looksDate(46266),true);
 });
+test('카드 수수료: 매출 × 수수료율로 추정, 실제 결제수수료를 넣으면 그 금액으로 대체',()=>{
+ const est=C.summarize([row('sale',1000000),row('refund',20000)],'2026-11',{royaltyRate:10,feeRate:1.5});
+ assert.equal(est.fee,14700);assert.equal(est.royalty,98000);assert.equal(est.profit,980000-98000-14700);
+ const act=C.summarize([row('sale',1000000),row('expense',9000,{category:'결제수수료'})],'2026-11',{feeRate:1.5});
+ assert.equal(act.fee,0);assert.equal(act.hasFee,true);assert.equal(act.expense,9000);
+ assert.equal(C.summarize([row('sale',1000000)],'2026-11',{}).fee,0,'수수료율 미설정이면 0');
+});

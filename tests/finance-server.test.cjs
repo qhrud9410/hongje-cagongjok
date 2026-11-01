@@ -129,6 +129,10 @@ test('월 설정: 초깃값(default) 이어받기, 비품 제외 토글이 다�
   assert.deepEqual((await load({finMonth:'2026-11'})).finance.months['2026-11'].excludedPurchases,[]);
   await bad('financeMonthSave',{ownerPin:OWNER,ym:'2026-13',royaltyRate:1},/월/);
   await bad('financeMonthSave',{ownerPin:OWNER,ym:'2026-11',royaltyRate:120},/로열티/);
+  await ok('financeMonthSave',{ym:'2026-11',feeRate:1.5,alsoDefault:true});
+  m=(await load({finMonth:'2026-11'})).finance.months;
+  assert.equal(m['2026-11'].feeRate,1.5);assert.equal(m.default.feeRate,1.5);assert.equal(m['2026-11'].royaltyRate,5,'수수료만 바꿔도 로열티 유지');
+  await bad('financeMonthSave',{ownerPin:OWNER,ym:'2026-11',feeRate:-1},/수수료율/);
 });
 
 test('재무 표가 바뀌면 화면 새로고침 신호(표 이름만)가 나간다',()=>{

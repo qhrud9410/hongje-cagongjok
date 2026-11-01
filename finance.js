@@ -18,7 +18,7 @@
    const m=f.months||{};
    if(m[ym])return m[ym];
    const d=m.default;
-   return {fixed:d?d.fixed:[],royaltyRate:d?d.royaltyRate:0,confirmed:false,excludedPurchases:[],fromDefault:!!d};
+   return {fixed:d?d.fixed:[],royaltyRate:d?d.royaltyRate:0,feeRate:d?d.feeRate||0:0,confirmed:false,excludedPurchases:[],fromDefault:!!d};
  }
  function download(name,body,type){const u=URL.createObjectURL(new Blob([body],{type})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
  // 시트 안 저장 버튼: 두 번 눌리지 않게 막고, 실패하면 시트 안에 이유를 보여 준다
@@ -44,11 +44,13 @@
    if(!cfg.confirmed)warn.push('월 비용 설정 확인 전');
    if(s.review)warn.push(`분류 대기 ${s.review}건`);
    if(!s.hasRoyalty&&!s.royaltyRate)warn.push('로열티 비율 미설정');
+   if(!s.hasFee&&!s.feeRate)warn.push('카드 수수료율 미설정');
+   const feeLabel=s.hasFee?'카드 수수료 (실제 금액)':`카드 수수료 ${s.feeRate}% (추정)`;
    const royaltyLabel=s.hasRoyalty?'로열티 (실제 지출로 대체됨)':`로열티 ${s.royaltyRate}% · ${s.final?`${md(s.lastDay)} 말일 매출 기준`:`말일(${md(s.lastDay)}) 기준 예상`}`;
    return `<section class="fin-top"><div class="spread"><div><div class="faint">홍제역점 · 점주 전용</div><h2>매출·비용 <span class="pill s-warn">검토용</span></h2></div><input aria-label="조회 월" id="fin-month" type="month" value="${ym}"></div>
-   <div class="fin-hero"><span>${esc(ctx.monthLabel(ym))} 예상 운영이익</span><strong class="num ${s.hasSales&&s.profit<0?'fin-loss':''}">${s.hasSales?won(s.profit):'매출을 넣어 주세요'}</strong>
+   <div class="fin-hero"><span>${esc(ctx.monthLabel(ym))} 예상 순수익 <small>(세전)</small></span><strong class="num ${s.hasSales&&s.profit<0?'fin-loss':''}">${s.hasSales?won(s.profit):'매출을 넣어 주세요'}</strong>
    <div>${warn.length?'아직 빠진 게 있어요 · '+warn.join(' · '):(s.final?'입력된 기준으로 마감 가능한 상태예요':'지금까지 입력된 기준의 추정치')}</div>
-   <div class="fin-formula">매출(취소 반영) − 운영비 − 월 고정비 − 급여·리워드 − 로열티</div></div>
+   <div class="fin-formula">매출(취소 반영) − 운영비 − 월 고정비 − 급여·리워드 − 로열티 − 카드 수수료</div></div>
    <div class="fin-metrics"><div><span>매출 (취소 반영)</span><b class="num">${won(s.sales)}</b></div><div><span>비용 합계</span><b class="num">${won(s.expense)}</b></div></div>
    <div class="row"><button class="btn primary" data-fin="day">+ 일 매출</button><button class="btn" data-fin="add">+ 비용·기타 거래</button><button class="btn" data-fin="import">파일 가져오기</button><button class="btn" data-fin="settings">월 비용 설정</button></div>
    <p class="faint">부가세 포함 금액 기준의 운영 참고값이에요. 세금·감가상각·안 넣은 비용은 빠져 있어서 최종 순이익과 달라요. 금융 자동 연동은 아직 안 되어 있어요.</p></section>
@@ -57,8 +59,8 @@
    ${s.missingDays.length?`<div class="fin-notice">안 넣은 날: ${s.missingDays.slice(0,40).map(d=>`<button class="fin-chip" data-fin-day="${d}">${md(d)}</button>`).join('')}${s.missingDays.length>40?' …':''}<br><span class="faint">쉬는 날은 0원으로 넣으면 입력한 날로 셀게요.</span></div>`:''}
    <div class="list">${dayList.length?dayList.map(([d,v])=>`<button class="item fin-transaction" data-fin-day="${d}"><div><div class="nm">${md(d)} ${'일월화수목금토'[new Date(d+'T00:00:00Z').getUTCDay()]}</div>${v.refunds?`<div class="faint">취소·환불 ${won(v.refunds)}</div>`:''}</div><b class="num">${won(v.sales-v.refunds)}</b></button>`).join(''):'<div class="card empty">토스 POS의 하루 매출 합계를 넣어 주세요.</div>'}</div></section>
 
-   <section><h2>비용이 어디에 쓰였나요?</h2><div class="list">${[['직접 넣은·가져온 운영비',s.variable-s.purchaseAmount],['운영실 비품 주문',s.purchaseAmount],['월 고정비',s.fixed],['급여·리워드 (근무 기록 기준)',s.payroll],[royaltyLabel,s.royalty]].map(([l,n])=>`<div class="item"><span>${esc(l)}</span><b class="num">${won(n)}</b></div>`).join('')}</div>
-   <div class="faint">급여는 관리 탭과 같은 방식(근무일 × 1시간 30분 × 시급 + 리워드)이고, 그만둔 매니저의 그 달 근무도 넣어요. 시급은 지금 등록된 값으로 계산해요. 로열티를 실제 운영비(분류 ‘로열티’)로 넣으면 예상액 대신 그 금액을 써요.</div>
+   <section><h2>비용이 어디에 쓰였나요?</h2><div class="list">${[['직접 넣은·가져온 운영비',s.variable-s.purchaseAmount],['운영실 비품 주문',s.purchaseAmount],['월 고정비',s.fixed],['급여·리워드 (근무 기록 기준)',s.payroll],[royaltyLabel,s.royalty],[feeLabel,s.fee]].map(([l,n])=>`<div class="item"><span>${esc(l)}</span><b class="num">${won(n)}</b></div>`).join('')}</div>
+   <div class="faint">급여는 관리 탭과 같은 방식(근무일 × 1시간 30분 × 시급 + 리워드)이고, 그만둔 매니저의 그 달 근무도 넣어요. 시급은 지금 등록된 값으로 계산해요. 로열티를 실제 운영비(분류 ‘로열티’)로 넣으면 예상액 대신 그 금액을 써요. 카드 수수료도 토스 정산 내역의 실제 수수료를 ‘결제수수료’ 분류로 넣으면 추정 대신 그 금액을 써요.</div>
    ${buys.length?`<details class="fin-details"><summary>비품 주문 중복 확인 · ${buys.length}건</summary><p class="faint">카드 사용내역에도 있는 주문이면 여기서 빼 주세요. 두 번 계산하지 않게요.</p>${buys.map(b=>`<label class="fin-check"><input type="checkbox" data-fin-purchase="${esc(b.row)}" ${(cfg.excludedPurchases||[]).includes(String(b.row))?'checked':''}>손익에서 빼기 · ${esc(b.date)} ${esc(b.name)} ${won(Number(b.price)||0)}</label>`).join('')}</details>`:''}</section>
 
    <section><div class="spread"><h2>비용·기타 거래 <span class="sub">${rows.length}건</span></h2><select aria-label="거래 필터" id="fin-filter">${options({all:'전체',...labels},filter)}</select></div>
@@ -88,7 +90,7 @@
    const ym=ctx.month(),f=data(),cfg=config(f,ym);
    let fixed=(cfg.fixed||[]).map(x=>({...x}));
    const rowsHtml=()=>fixed.map((r,i)=>`<div class="fin-fixed"><input aria-label="항목 이름" name="n${i}" maxlength="40" value="${esc(r.name)}" placeholder="항목"><input aria-label="금액" name="a${i}" inputmode="numeric" value="${r.amount??''}" placeholder="원"><button type="button" class="btn small ghost" data-fx-del="${i}" aria-label="빼기">✕</button></div>`).join('');
-   ctx.openSheet(`<h3>${esc(ctx.monthLabel(ym))} 월 비용 설정</h3>${!(f.months||{})[ym]?`<p class="fin-notice">${cfg.fromDefault?'지난번 저장한 금액을 불러왔어요. 이달 실제 금액인지 확인해 주세요.':'처음이에요. 매달 나가는 고정비를 넣어 주세요.'}</p>`:''}<form id="fin-settings"><div id="fin-fixed-list">${rowsHtml()}</div><button type="button" class="btn small" data-fx-add>+ 항목 추가</button><p class="faint">여기 넣은 비용은 월 전액 반영돼요. 같은 건을 거래로 또 넣지 마세요. 달마다 달라지는 전기·수도는 운영비 거래로 넣어 주세요.</p><div class="field"><label>로열티 비율 (매출의 %)<input name="rate" required inputmode="decimal" value="${cfg.royaltyRate||''}"></label></div><p class="faint">로열티 = 그 달 말일까지의 매출(취소 반영) × 비율로 계산해요.</p><label class="fin-check"><input name="alsoDefault" type="checkbox" checked>다음 달부터도 이 금액으로 시작</label><label class="fin-check"><input name="confirmed" type="checkbox" ${cfg.confirmed?'checked':''}>이달 고정비가 맞고, 거래로 또 넣지 않았어요</label><div class="acts"><button class="btn" type="button" data-close>닫기</button><button class="btn primary">저장</button></div><p role="alert"></p></form>`,sh=>{
+   ctx.openSheet(`<h3>${esc(ctx.monthLabel(ym))} 월 비용 설정</h3>${!(f.months||{})[ym]?`<p class="fin-notice">${cfg.fromDefault?'지난번 저장한 금액을 불러왔어요. 이달 실제 금액인지 확인해 주세요.':'처음이에요. 매달 나가는 고정비를 넣어 주세요.'}</p>`:''}<form id="fin-settings"><div id="fin-fixed-list">${rowsHtml()}</div><button type="button" class="btn small" data-fx-add>+ 항목 추가</button><p class="faint">여기 넣은 비용은 월 전액 반영돼요. 같은 건을 거래로 또 넣지 마세요. 달마다 달라지는 전기·수도는 운영비 거래로 넣어 주세요.</p><div class="field"><label>로열티 비율 (매출의 %)<input name="rate" required inputmode="decimal" value="${cfg.royaltyRate||''}"></label></div><p class="faint">로열티 = 그 달 말일까지의 매출(취소 반영) × 비율로 계산해요.</p><div class="field"><label>카드 수수료율 (매출의 %, 추정)<input name="feeRate" inputmode="decimal" value="${cfg.feeRate||''}" placeholder="예: 1.5"></label></div><p class="faint">카드·QR 결제에 떼이는 수수료예요. 토스 정산 내역에서 그달 실제 수수료를 ‘결제수수료’ 분류 거래로 넣으면 이 추정 대신 실제 금액을 써요.</p><label class="fin-check"><input name="alsoDefault" type="checkbox" checked>다음 달부터도 이 금액으로 시작</label><label class="fin-check"><input name="confirmed" type="checkbox" ${cfg.confirmed?'checked':''}>이달 고정비가 맞고, 거래로 또 넣지 않았어요</label><div class="acts"><button class="btn" type="button" data-close>닫기</button><button class="btn primary">저장</button></div><p role="alert"></p></form>`,sh=>{
      const form=sh.querySelector('form'),list=sh.querySelector('#fin-fixed-list');
      const sync=()=>{fixed=fixed.map((r,i)=>({name:form.elements['n'+i]?.value??r.name,amount:form.elements['a'+i]?.value??r.amount}));};
      const redraw=()=>{list.innerHTML=rowsHtml();list.querySelectorAll('[data-fx-del]').forEach(b=>b.onclick=()=>{sync();fixed.splice(Number(b.dataset.fxDel),1);redraw();});};
@@ -97,7 +99,8 @@
      form.onsubmit=e=>{e.preventDefault();sync();const fd=new FormData(form);submit(sh,form.querySelector('.btn.primary'),async()=>{
        const items=fixed.filter(r=>String(r.name).trim()||String(r.amount).trim()).map(r=>{if(!String(r.name).trim())throw Error('고정비 이름을 적어 주세요.');return {name:String(r.name).trim(),amount:C.amount(r.amount)};});
        const rate=Number(String(fd.get('rate')).replace('%',''));if(!Number.isFinite(rate)||rate<0||rate>100)throw Error('로열티는 0~100% 범위로 넣어 주세요.');
-       return ctx.call('financeMonthSave',{ym,fixed:items,royaltyRate:rate,confirmed:fd.get('confirmed')==='on',alsoDefault:fd.get('alsoDefault')==='on'});
+       const feeRate=Number(String(fd.get('feeRate')||'0').replace('%',''));if(!Number.isFinite(feeRate)||feeRate<0||feeRate>100)throw Error('카드 수수료율은 0~100% 범위로 넣어 주세요.');
+       return ctx.call('financeMonthSave',{ym,fixed:items,royaltyRate:rate,feeRate,confirmed:fd.get('confirmed')==='on',alsoDefault:fd.get('alsoDefault')==='on'});
      },'이달 비용 설정을 저장했어요.');};
    });
  }

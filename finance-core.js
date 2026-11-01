@@ -45,7 +45,7 @@
     return out;
   }
   /*
-    예상 운영이익 = (매출 − 취소) − (운영비 − 비용 환급) − 포함한 비품 주문 − 월 고정비 − 급여·리워드 − 로열티
+    예상 순수익(세전) = (매출 − 취소) − (운영비 − 비용 환급) − 포함한 비품 주문 − 월 고정비 − 급여·리워드 − 로열티 − 카드 수수료
     로열티 = 그 달 전체(말일까지) 매출 × 비율. 말일 전에는 지금까지 매출 기준 추정치.
     로열티를 실제 운영비로 넣은 달은 추정치 대신 그 금액을 쓴다.
   */
@@ -62,13 +62,17 @@
     const hasRoyalty=month.some(r=>(r.kind==='expense'||r.kind==='expenseRefund')&&r.category==='로열티');
     const rate=Number(config.royaltyRate)||0;
     const royalty=hasRoyalty?0:Math.round(Math.max(0,sales)*rate/100);
-    const expense=variable+fixed+payroll+royalty;
+    // 카드 수수료: '결제수수료' 분류로 실제 금액을 넣은 달은 그 금액, 아니면 매출(취소 반영) × 수수료율로 추정
+    const hasFee=month.some(r=>(r.kind==='expense'||r.kind==='expenseRefund')&&r.category==='결제수수료');
+    const feeRate=Number(config.feeRate)||0;
+    const fee=hasFee?0:Math.round(Math.max(0,sales)*feeRate/100);
+    const expense=variable+fixed+payroll+royalty+fee;
     const daily=dailyTotals(rows,ym);
     const end=lastDay(ym);
     // 지금까지 지난 날 수 (오늘 포함). 지난달이면 그 달 전체, 다음 달이면 0.
     const passedDays=!today||today>end?daysIn(ym):today<ym+'-01'?0:Number(today.slice(8,10));
     const entered=Object.keys(daily);
-    return {sales,expense,profit:sales-expense,variable,fixed,payroll,royalty,royaltyRate:rate,purchaseAmount,costs,
+    return {sales,expense,profit:sales-expense,variable,fixed,payroll,royalty,royaltyRate:rate,fee,feeRate,hasFee,purchaseAmount,costs,
       review:month.filter(r=>r.kind==='review').length,hasSales:month.some(r=>r.kind==='sale'),hasRoyalty,
       final:!!today&&today>end, lastDay:end, daysEntered:entered.length, daysPassed:passedDays,
       missingDays:Array.from({length:passedDays},(_,i)=>`${ym}-${String(i+1).padStart(2,'0')}`).filter(d=>!entered.includes(d))};
