@@ -1,6 +1,6 @@
 /* CS 관리 탭 — 고객 문의를 붙여 넣으면 홍제점 점주 말투로 카톡 답장 초안을 만든다.
    서버는 Supabase Edge Function 'cs' (api와 분리). 답장은 사람이 확인하고 직접 카톡에 붙여 넣는다.
-   기록은 매장 전체(로그인한 매니저·점주)가 함께 본다. */
+   점주 전용 (서버도 점주 PIN일 때만 응답). 기록은 두 점주가 함께 본다. */
 (function(){
  'use strict';
  let ctx;
@@ -136,7 +136,7 @@
   </div>`;
  }
  function histItem(r){
-  const open=st.open===r.id,canDel=ctx.isOwner()||r.mid===st.me;
+  const open=st.open===r.id,canDel=true;
   return `<div class="card cs-hist${open?' open':''}">
    <button class="cs-hhead" data-cs="toggle" data-id="${esc(r.id)}"><span class="cs-hq">${esc(short(r.question,70))}</span><span class="faint num" style="font-size:12px;white-space:nowrap">${esc(r.name||'')} · ${when(r.at)}</span></button>
    ${open?`<div class="cs-hbody">
@@ -153,11 +153,11 @@
  }
  function view(c){
   ctx=c;
-  if(!ctx.loggedIn())return `<div class="card empty"><b>CS 관리는 로그인 후 쓸 수 있어요</b>이름과 PIN으로 로그인하면 고객 문의 답장 초안을 만들 수 있어요.<div style="margin-top:12px"><button class="btn primary" data-act="login">로그인</button></div></div>`;
+  if(!ctx.isOwner())return `<div class="card empty"><b>CS 관리는 점주 전용이에요</b>점주 PIN으로 로그인하면 고객 문의 답장 초안을 만들 수 있어요.<div style="margin-top:12px"><button class="btn primary" data-act="login">로그인</button></div></div>`;
   if(!st.loaded&&!st.loading&&!st.err)setTimeout(()=>load(),0);
   let h=`<section><div class="spread"><h2>CS 답장 도우미</h2>${ctx.isOwner()?`<button class="btn small ghost" data-cs="settings">⚙️ 말투·매장 정보</button>`:''}</div>
    <p class="faint" style="margin:2px 0 12px;font-size:13.5px">카톡으로 온 고객 문의를 붙여 넣으면, 본사 매뉴얼에 맞춰 홍제점 말투로 답장 초안을 써 드려요. 보내기 전에 꼭 한 번 읽어 봐 주세요.</p>`;
-  if(st.loaded&&!st.ready)h+=`<div class="note" style="margin-bottom:12px">${ctx.isOwner()?'<b>AI 답장 기능이 아직 꺼져 있어요.</b> Supabase에 Claude API 키(ANTHROPIC_API_KEY)를 넣으면 바로 켜져요.':'<b>AI 답장 기능이 아직 준비 중이에요.</b> 점주에게 알려 주세요.'}</div>`;
+  if(st.loaded&&!st.ready)h+=`<div class="note" style="margin-bottom:12px"><b>AI 답장 기능이 아직 꺼져 있어요.</b> Supabase에 Claude API 키(ANTHROPIC_API_KEY)를 넣으면 바로 켜져요.</div>`;
   h+=`<div class="card">
     <div class="field"><label for="cs-q">고객 문의</label><${TA} id="cs-q" rows="5" placeholder="카톡 채팅방에서 고객 메시지를 복사해 붙여 넣어 주세요.&#10;여러 메시지는 한꺼번에 붙여 넣어도 돼요.">${esc(st.q)}</${TA}></div>
     <div class="field" style="margin-top:10px"><label for="cs-extra">추가로 전할 말 (선택)</label><input id="cs-extra" placeholder="예: 쿠폰 1장 드린다고 해 줘 / 내일 오전에 방문 예정" value="${esc(st.extra)}" autocomplete="off"></div>
@@ -171,7 +171,7 @@
   const f=st.filter.trim();
   const items=st.items.filter(r=>!f||(r.question+' '+r.reply).includes(f));
   h+=`<div class="spread" style="margin-top:22px"><h2 style="margin:0">최근 기록</h2><input id="cs-filter" style="max-width:180px" class="cs-search" placeholder="🔍 기록 검색" value="${esc(st.filter)}" autocomplete="off"></div>
-   <p class="faint" style="margin:2px 0 10px;font-size:12.5px">매니저와 점주가 함께 봐요. 비슷한 문의는 예전 답장을 다시 써도 돼요.</p>`;
+   <p class="faint" style="margin:2px 0 10px;font-size:12.5px">두 점주가 함께 봐요. 비슷한 문의는 예전 답장을 다시 써도 돼요.</p>`;
   if(st.err)h+=`<div class="card empty"><b>기록을 불러오지 못했어요</b>${esc(st.err)}<div style="margin-top:10px"><button class="btn small" data-cs="reload">다시 시도</button></div></div>`;
   else if(!st.loaded)h+=`<div class="card empty">불러오는 중…</div>`;
   else if(!items.length)h+=`<div class="card empty">${f?'검색 결과가 없어요.':'아직 기록이 없어요. 첫 문의를 붙여 넣어 보세요.'}</div>`;
@@ -245,7 +245,7 @@
   }));
  }
  // 다른 기기에서 기록이 바뀌면(실시간 신호) 목록만 다시 불러온다
- function changed(){if(ctx&&st.loaded&&ctx.loggedIn())load(true);}
+ function changed(){if(ctx&&st.loaded&&ctx.isOwner())load(true);}
  function reset(){Object.assign(st,{loaded:false,items:[],result:null,q:'',extra:'',again:'',err:'',open:null});}
  window.HongjeCS={view,bind,changed,reset,MENU};
 })();

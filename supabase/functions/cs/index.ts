@@ -1,6 +1,6 @@
 // 카공족 홍제 운영실 — CS 관리 서버 함수 (api와 분리)
 // 고객 문의를 붙여 넣으면 Claude API로 홍제점 점주 말투의 카톡 답장 초안을 만든다.
-// 로그인 확인 방식은 api 함수와 같다 (매니저 이름+PIN 또는 점주 PIN, 6번 틀리면 10분 잠김).
+// 점주 전용: 점주 PIN이 맞을 때만 응답한다 (api 함수와 같은 잠금 규칙, 6번 틀리면 10분 잠김).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { CS_DEFAULT_TONE, csSystemPrompt, parseCsOutput } from "./prompt.ts";
 
@@ -54,15 +54,8 @@ async function who(p: Row) {
     const m = mgrs.find((x) => x.id === p.mid) || owner;
     return { owner: true, mid: m ? m.id : "", name: m && m.role !== "점주" ? m.name : "점주", settings: st };
   }
-  if (p.mid && p.pin) {
-    const m = mgrs.find((x) => x.id === p.mid);
-    if (!m) fail("매니저를 찾을 수 없어요.");
-    if (!m!.pin) fail("이 매니저의 PIN이 아직 없어요. 점주에게 요청해 주세요.");
-    await failGuard("m:" + p.mid);
-    if (String(p.pin) !== m!.pin) { await failHit("m:" + p.mid); fail("PIN이 맞지 않아요."); }
-    return { owner: false, mid: m!.id, name: m!.name, settings: st };
-  }
-  return fail("먼저 이름과 PIN으로 로그인해 주세요.");
+  if (p.mid && p.pin) fail("CS 관리는 점주만 쓸 수 있어요.");
+  return fail("점주 PIN으로 로그인해 주세요.");
 }
 
 /* ---------- Claude API ---------- */
@@ -132,16 +125,14 @@ const ACTIONS: Record<string, (p: Row) => Promise<any>> = {
     };
   },
   async csDelete(p) {
-    const w = await who(p);
+    await who(p);
     const r = await q<Row | null>(db.from("cs_replies").select("*").eq("id", p.id).maybeSingle());
     if (!r) return true;
-    if (!w.owner && r.mid !== w.mid) fail("내가 만든 기록만 지울 수 있어요.");
     await q(db.from("cs_replies").delete().eq("id", p.id));
     return true;
   },
   async csSettingsSave(p) {
-    const w = await who(p);
-    if (!w.owner) fail("말투·매장 정보는 점주만 바꿀 수 있어요.");
+    await who(p);
     const tone = String(p.tone ?? "").trim(), info = String(p.info ?? "").trim();
     if (tone.length > 4000 || info.length > 4000) fail("4,000자 이하로 줄여 주세요.");
     await setSetting("CS말투", tone);

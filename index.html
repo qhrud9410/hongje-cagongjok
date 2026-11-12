@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="finance.css?v=20261101d">
-<link rel="stylesheet" href="cs.css?v=20261112a">
+<link rel="stylesheet" href="cs.css?v=20261112b">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="홍제 운영실">
@@ -202,7 +202,7 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
       <button role="tab" data-tab="today" aria-selected="true">출근<span class="cnt" id="swapcnt" hidden></span></button>
       <button role="tab" data-tab="cal" aria-selected="false">근무 캘린더</button>
       <button role="tab" data-tab="sup" aria-selected="false">비품<span class="cnt" id="lowcnt" hidden></span></button>
-      <button role="tab" data-tab="cs" aria-selected="false">CS</button>
+      <button role="tab" data-tab="cs" aria-selected="false" id="cstab" hidden>CS</button>
       <button role="tab" data-tab="finance" aria-selected="false" id="financetab" hidden>매출·비용</button>
       <button role="tab" data-tab="admin" aria-selected="false" id="admintab" hidden>관리</button>
     </nav>
@@ -215,7 +215,7 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="finance-core.js?v=20261101d"></script>
 <script src="finance.js?v=20261101d"></script>
-<script src="cs.js?v=20261112a"></script>
+<script src="cs.js?v=20261112b"></script>
 <script>
 (() => {
 "use strict";
@@ -451,6 +451,7 @@ function renderChrome(){
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected", String(b.dataset.tab===S.tab)));
   document.getElementById("admintab").hidden = !S.isOwner;
   document.getElementById("financetab").hidden = !S.isOwner;
+  document.getElementById("cstab").hidden = !S.isOwner;
   const low = Object.values(S.supplies).filter(s=>s.status==="low").length;
   const lc = document.getElementById("lowcnt"); lc.hidden = !low; lc.textContent = low;
   const nb = boardUnread(); const bc = document.getElementById("boardcnt"); if (bc){ bc.hidden = !nb; bc.textContent = nb; }
@@ -459,7 +460,7 @@ function renderChrome(){
   const label = S.isOwner ? `${S.me?esc(mName(S.me))+" · ":""}점주` : (S.me && S.pin) ? esc(mName(S.me))+" 매니저" : "";
   el.innerHTML = label ? `<b>${label}</b><button class="btn small ghost" id="logout">로그아웃</button>` : `<button class="btn small primary" id="login">로그인</button>`;
   el.querySelector("#login")?.addEventListener("click", loginSheet);
-  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; S.finance=null; window.HongjeCS?.reset(); ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (["admin","finance"].includes(S.tab)) S.tab="today"; render(); refresh(); });
+  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; S.finance=null; window.HongjeCS?.reset(); ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (["admin","finance","cs"].includes(S.tab)) S.tab="today"; render(); refresh(); });
 }
 function render(){
   renderChrome();
