@@ -9,6 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="finance.css?v=20261101d">
+<link rel="stylesheet" href="cs.css?v=20261112a">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="홍제 운영실">
@@ -201,6 +202,7 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
       <button role="tab" data-tab="today" aria-selected="true">출근<span class="cnt" id="swapcnt" hidden></span></button>
       <button role="tab" data-tab="cal" aria-selected="false">근무 캘린더</button>
       <button role="tab" data-tab="sup" aria-selected="false">비품<span class="cnt" id="lowcnt" hidden></span></button>
+      <button role="tab" data-tab="cs" aria-selected="false">CS</button>
       <button role="tab" data-tab="finance" aria-selected="false" id="financetab" hidden>매출·비용</button>
       <button role="tab" data-tab="admin" aria-selected="false" id="admintab" hidden>관리</button>
     </nav>
@@ -213,6 +215,7 @@ header.bar::before{content:"";position:absolute;left:50%;transform:translateX(-5
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="finance-core.js?v=20261101d"></script>
 <script src="finance.js?v=20261101d"></script>
+<script src="cs.js?v=20261112a"></script>
 <script>
 (() => {
 "use strict";
@@ -456,16 +459,23 @@ function renderChrome(){
   const label = S.isOwner ? `${S.me?esc(mName(S.me))+" · ":""}점주` : (S.me && S.pin) ? esc(mName(S.me))+" 매니저" : "";
   el.innerHTML = label ? `<b>${label}</b><button class="btn small ghost" id="logout">로그아웃</button>` : `<button class="btn small primary" id="login">로그인</button>`;
   el.querySelector("#login")?.addEventListener("click", loginSheet);
-  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; S.finance=null; ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (["admin","finance"].includes(S.tab)) S.tab="today"; render(); refresh(); });
+  el.querySelector("#logout")?.addEventListener("click", ()=>{ if (S.pushSub) { call("pushUnsubscribe",{endpoint:S.pushSub.endpoint}).catch(()=>{}); S._pushSynced=null; S.pushOn=false; } S.me=null; S.pin=""; S.ownerPin=""; S.isOwner=false; S.finance=null; window.HongjeCS?.reset(); ["me","pin","ownerPin"].forEach(k=>store.set(k,"")); if (["admin","finance"].includes(S.tab)) S.tab="today"; render(); refresh(); });
 }
 function render(){
   renderChrome();
   const main = document.getElementById("main");
   if (!S.loaded){ main.innerHTML = `<div class="empty"><b>불러오는 중</b>매장 기록을 가져오고 있어요.</div>`; return; }
-  const v = {today:viewToday, cal:viewCal, sup:viewSup, board:viewBoard, admin:viewAdmin, finance:viewFinance}[S.tab] || viewToday;
+  const v = {today:viewToday, cal:viewCal, sup:viewSup, board:viewBoard, admin:viewAdmin, finance:viewFinance, cs:viewCS}[S.tab] || viewToday;
   main.innerHTML = v();
   bindMain(main);
   if(S.tab==="finance") window.HongjeFinance?.bind(main);
+  if(S.tab==="cs") window.HongjeCS?.bind(main);
+}
+
+// CS 관리 탭 (cs.js). 파일을 못 불러와도 다른 탭은 그대로 쓸 수 있게 한다
+function viewCS(){
+  if (!window.HongjeCS) return `<div class="card empty"><b>CS 화면을 불러오지 못했어요</b>새로고침해 주세요. 다른 탭은 그대로 쓸 수 있어요.</div>`;
+  return window.HongjeCS.view({ url:SB_URL, key:SB_KEY, auth:()=>({mid:S.me, pin:S.pin, ownerPin:S.ownerPin}), loggedIn, isOwner:()=>S.isOwner, tab:()=>S.tab, render, openSheet, closeSheet, toast });
 }
 
 function viewFinance(){
@@ -1427,7 +1437,7 @@ refresh();
   try{
     if (!window.supabase) return;
     const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth:{ persistSession:false } });
-    sb.channel("hongje-sync").on("broadcast", { event:"changed" }, kick).subscribe();
+    sb.channel("hongje-sync").on("broadcast", { event:"changed" }, m=>{ if (m && m.payload && m.payload.t==="cs_replies") { if (S.tab==="cs") window.HongjeCS?.changed(); return; } kick(); }).subscribe();
   }catch(e){ console.warn("live", e); }
 })();
 })();
