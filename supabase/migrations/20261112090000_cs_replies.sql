@@ -28,3 +28,6 @@ create trigger sync_cs_replies after insert or update or delete on public.cs_rep
   for each statement execute function public.notify_change();
 
 commit;
+
+-- 11-12: 점주 확인이 필요한 질문 목록 (줄바꿈으로 구분)
+alter table public.cs_replies add column if not exists checks text not null default '';

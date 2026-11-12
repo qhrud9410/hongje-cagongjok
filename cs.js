@@ -5,7 +5,7 @@
  'use strict';
  let ctx;
  const st={loaded:false,loading:false,err:'',items:[],tone:'',info:'',defaultTone:'',ready:true,me:'',
-   q:'',extra:'',busy:false,result:null,again:'',open:null,showMenu:false,filter:''};
+   q:'',extra:'',busy:false,result:null,again:'',open:null,showMenu:false,filter:'',ck:{},learning:false};
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const TA='text'+'area';
 
@@ -125,6 +125,7 @@
    <div class="spread"><h3 style="margin:0">답장 초안</h3><span class="faint" style="font-size:12.5px">${esc(r.name||'')} · ${when(r.at)}</span></div>
    ${r.reply?`<div class="cs-bubble" id="cs-reply">${esc(r.reply)}</div>`:''}
    ${r.memo?`<div class="cs-memo"><b>직원 메모</b> ${esc(r.memo)}</div>`:''}
+   ${checksBox(r)}
    <div class="acts cs-acts">
     ${r.reply?`<button class="btn primary" data-cs="copy" data-id="${esc(r.id)}">📋 답장 복사</button>`:''}
    </div>
@@ -134,6 +135,33 @@
     <div class="row"><input id="cs-again" style="flex:1;min-width:160px" placeholder="예: 내일 오전에 방문해서 고친다고 해 줘" value="${esc(st.again)}" autocomplete="off"><button class="btn" data-cs="again" data-id="${esc(r.id)}" ${st.busy?'disabled':''}>다시 만들기</button></div>
    </div>
   </div>`;
+ }
+ // 점주만 아는 매장 정보가 필요할 때: 그 자리에서 답하면 홍제점 정보에 쌓이고 답장을 다시 만든다
+ function checksBox(r){
+  const cs=(r.checks||[]);
+  if(!cs.length)return '';
+  return `<div class="cs-check"><div class="cs-check-h">❓ 확인이 필요해요 <span class="faint">답을 적으면 홍제점 정보에 저장돼서 다음부터 바로 써요</span></div>
+   ${cs.map((q,i)=>`<div class="field" style="margin-top:8px"><label for="cs-ck-${i}">${esc(q)}</label><input id="cs-ck-${i}" data-q="${esc(q)}" value="${esc(st.ck[q]||'')}" placeholder="예: 누적 합산 / 없음 / 5,900원" autocomplete="off"></div>`).join('')}
+   <div class="acts" style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary small" data-cs="learn" data-id="${esc(r.id)}" ${st.learning||st.busy?'disabled':''}>${st.learning?'저장 중…':'저장하고 답장 다시 만들기'}</button></div>
+  </div>`;
+ }
+ async function learn(id){
+  const r=st.result&&st.result.id===id?st.result:null;if(!r)return;
+  const items=(r.checks||[]).map(q=>({q,a:(st.ck[q]||'').trim()})).filter(x=>x.a);
+  if(!items.length){ctx.toast('답을 하나 이상 적어 주세요.');return;}
+  st.learning=true;ctx.render();
+  try{
+   const d=await csCall('csLearn',{id,items});
+   st.info=d.info;
+   items.forEach(x=>delete st.ck[x.q]);
+   const done=new Set(items.map(x=>x.q));
+   r.checks=(r.checks||[]).filter(q=>!done.has(q));
+   st.items.forEach(x=>{if(x.id===id)x.checks=r.checks;});
+   ctx.toast(`홍제점 정보에 ${d.added}개 저장했어요. 답장을 다시 만들게요`);
+   st.learning=false;
+   st.again='방금 추가된 홍제점 정보를 반영해서 다시 써 줘';
+   await make({question:r.question,id});
+  }catch(e){ctx.toast(e.message);st.learning=false;ctx.render();}
  }
  function histItem(r){
   const open=st.open===r.id,canDel=true;
@@ -202,8 +230,8 @@
   ctx.openSheet(`<h3>말투·홍제점 정보</h3>
    <div class="field"><label for="cs-tone">말투 (AI가 따라 쓰는 기준)</label><${TA} id="cs-tone" rows="8" placeholder="${esc(st.defaultTone)}">${esc(st.tone)}</${TA}>
     <span class="faint" style="font-size:12.5px">비워 두면 기본 말투를 써요. 실제로 보냈던 답장 2~3개를 ‘예시:’로 붙여 넣으면 말투가 훨씬 비슷해져요.</span></div>
-   <div class="field" style="margin-top:10px"><label for="cs-info">홍제점 정보 (본사 매뉴얼보다 우선)</label><${TA} id="cs-info" rows="8" placeholder="예:&#10;- 24시간 이용권 5,900원 / 선불권 10회 ○○원&#10;- 짐 보관: 키오스크 옆 바구니&#10;- 주차: 홍제역 공영주차장 (도보 3분)&#10;- 담당자 방문 시간: 평일 오전">${esc(st.info)}</${TA}>
-    <span class="faint" style="font-size:12.5px">가격, 시설, 주변 정보처럼 홍제점에만 해당하는 내용을 적어 주세요. 여기 없는 정보는 AI가 지어내지 않고 ‘확인 후 안내’로 답해요.</span></div>
+   <div class="field" style="margin-top:10px"><label for="cs-info">홍제점 정보 (본사 매뉴얼보다 우선)</label><${TA} id="cs-info" rows="10" placeholder="예:&#10;- 24시간 이용권 5,900원 / 선불권 10회 ○○원&#10;- 짐 보관: 키오스크 옆 바구니&#10;- 주차: 홍제역 공영주차장 (도보 3분)&#10;- 담당자 방문 시간: 평일 오전">${esc(st.info)}</${TA}>
+    <span class="faint" style="font-size:12.5px">가격, 시설, 주변 정보처럼 홍제점에만 해당하는 내용이에요. 답장의 ‘❓ 확인이 필요해요’에 답하면 여기에 한 줄씩 자동으로 쌓여요. 틀린 줄은 여기서 고치거나 지우면 돼요.</span></div>
    <div role="alert" style="color:var(--bad);font-size:13px"></div>
    <div class="acts"><button class="btn" data-close>취소</button><button class="btn primary" id="cs-save">저장</button></div>`,sh=>{
     const go=sh.querySelector('#cs-save');
@@ -221,6 +249,7 @@
   xEl&&xEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();make();}});
   qEl&&qEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();make();}});
   aEl&&aEl.addEventListener('input',()=>{st.again=aEl.value;});
+  main.querySelectorAll('[id^="cs-ck-"]').forEach(inp=>{inp.addEventListener('input',()=>{st.ck[inp.dataset.q]=inp.value;});inp.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();main.querySelector('[data-cs="learn"]')?.click();}});});
   aEl&&aEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();main.querySelector('[data-cs="again"]')?.click();}});
   fEl&&fEl.addEventListener('input',()=>{st.filter=fEl.value;const pos=fEl.selectionStart;ctx.render();const n=document.getElementById('cs-filter');if(n){n.focus();n.setSelectionRange(pos,pos);}});
   const find=id=>st.items.find(x=>x.id===id)||(st.result&&st.result.id===id?st.result:null);
@@ -237,6 +266,7 @@
     if(!el.dataset.armed){el.dataset.armed='1';el.textContent='한 번 더 누르면 삭제';return;}
     try{await csCall('csDelete',{id});st.items=st.items.filter(x=>x.id!==id);if(st.result&&st.result.id===id)st.result=null;ctx.toast('기록을 지웠어요');ctx.render();}catch(e){ctx.toast(e.message);}
    }
+   else if(a==='learn')learn(id);
    else if(a==='settings')settingsSheet();
    else if(a==='reload'){st.err='';load();}
    else if(a==='menu'){st.showMenu=!st.showMenu;ctx.render();}

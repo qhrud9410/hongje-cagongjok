@@ -93,7 +93,7 @@ async function ask(st: Row[], question: string, prev: string, extra: string) {
   }
   return fail("AI 답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
 }
-const row = (r: Row) => ({ id: r.id, at: r.at, mid: r.mid, name: r.name, question: r.question, reply: r.reply, memo: r.memo, extra: r.extra, parent: r.parent });
+const row = (r: Row) => ({ id: r.id, at: r.at, mid: r.mid, name: r.name, question: r.question, reply: r.reply, memo: r.memo, extra: r.extra, parent: r.parent, checks: String(r.checks || "").split("\n").filter(Boolean) });
 
 /* ---------- 요청 ---------- */
 const ACTIONS: Record<string, (p: Row) => Promise<any>> = {
@@ -112,7 +112,7 @@ const ACTIONS: Record<string, (p: Row) => Promise<any>> = {
     const today = await q<Row[]>(db.from("cs_replies").select("rid").eq("date", n.date));
     if (today.length >= DAILY_MAX) fail(`오늘은 AI 답변을 ${DAILY_MAX}번 만들어서 더 만들 수 없어요. 내일 다시 써 주세요.`);
     const r = await ask(w.settings, question, base ? String(base.reply || "") : "", extra);
-    const rec = { id: "cs-" + crypto.randomUUID().slice(0, 8), at: n.iso, date: n.date, mid: w.mid, name: w.name, question, reply: r.reply, memo: r.memo, extra, model: r.model, parent: base ? base.id : "" };
+    const rec = { id: "cs-" + crypto.randomUUID().slice(0, 8), at: n.iso, date: n.date, mid: w.mid, name: w.name, question, reply: r.reply, memo: r.memo, checks: r.checks.join("\n"), extra, model: r.model, parent: base ? base.id : "" };
     await q(db.from("cs_replies").insert(rec));
     return row(rec);
   },
@@ -131,10 +131,29 @@ const ACTIONS: Record<string, (p: Row) => Promise<any>> = {
     await q(db.from("cs_replies").delete().eq("id", p.id));
     return true;
   },
+  // 직원 메모의 '확인 필요' 질문에 점주가 답하면 홍제점 정보에 한 줄씩 쌓는다
+  async csLearn(p) {
+    const w = await who(p);
+    const items = (Array.isArray(p.items) ? p.items : []).map((x: Row) => ({ q: String(x.q || "").trim().slice(0, 300), a: String(x.a || "").trim().slice(0, 500) })).filter((x: Row) => x.a);
+    if (!items.length) fail("답을 하나 이상 적어 주세요.");
+    const cur = setting(w.settings, "CS매장정보");
+    const add = items.map((x: Row) => `- ${x.q ? x.q.replace(/[?？]\s*$/, "") + ": " : ""}${x.a}`).join("\n");
+    const info = (cur ? cur + "\n" : "") + add;
+    if (info.length > 8000) fail("홍제점 정보가 너무 길어요. ‘말투·매장 정보’에서 정리한 뒤 다시 저장해 주세요.");
+    await setSetting("CS매장정보", info);
+    if (p.id) {
+      const r = await q<Row | null>(db.from("cs_replies").select("rid,checks").eq("id", p.id).maybeSingle());
+      if (r) {
+        const done = new Set(items.map((x: Row) => x.q));
+        await q(db.from("cs_replies").update({ checks: String(r.checks || "").split("\n").filter((c) => c && !done.has(c)).join("\n") }).eq("rid", r.rid));
+      }
+    }
+    return { info, added: items.length };
+  },
   async csSettingsSave(p) {
     await who(p);
     const tone = String(p.tone ?? "").trim(), info = String(p.info ?? "").trim();
-    if (tone.length > 4000 || info.length > 4000) fail("4,000자 이하로 줄여 주세요.");
+    if (tone.length > 4000 || info.length > 8000) fail("말투는 4,000자, 홍제점 정보는 8,000자 이하로 줄여 주세요.");
     await setSetting("CS말투", tone);
     await setSetting("CS매장정보", info);
     return true;

@@ -12,7 +12,7 @@
 - 하루 150번까지만 만들 수 있음 (비용 안전장치).
 
 ## 서버 기능 (`cs` 함수)
-`csReply`(답장 만들기, `id`+`extra`면 이전 초안을 고쳐 새 줄로 저장), `csList`(최근 60개 + 설정), `csDelete`, `csSettingsSave` — 모두 점주 PIN 필요.
+`csReply`(답장 만들기, `id`+`extra`면 이전 초안을 고쳐 새 줄로 저장), `csList`(최근 60개 + 설정), `csDelete`, `csLearn`(확인 필요 질문에 답 → 홍제점 정보에 한 줄씩 추가, 해당 기록의 질문 목록에서 제거), `csSettingsSave` — 모두 점주 PIN 필요.
 
 ## 카톡 채널 자동응답 문구
 `cs.js`의 `MENU` (리스트 메뉴 10개). CS 탭 아래 ‘카톡 채널 자동응답 문구’에서 복사.

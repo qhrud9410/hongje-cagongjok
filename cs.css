@@ -16,3 +16,7 @@
 .cs-label{font-size:12px;font-weight:600;color:var(--ink-3);margin-top:10px}
 .cs-q{white-space:pre-wrap;word-break:break-word;background:var(--sunk);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:4px}
 .cs-menu{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.cs-check{border:1px solid var(--accent);background:var(--accent-soft);border-radius:10px;padding:12px;margin-top:10px}
+.cs-check-h{font-weight:600;font-size:13.5px}
+.cs-check-h .faint{font-weight:400;font-size:12px;display:block;margin-top:2px}
+.cs-check input{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 12px;width:100%}
